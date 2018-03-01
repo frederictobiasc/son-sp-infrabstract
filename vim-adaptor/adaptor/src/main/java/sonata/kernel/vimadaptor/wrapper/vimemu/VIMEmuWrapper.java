@@ -37,15 +37,29 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.slf4j.LoggerFactory;
 import sonata.kernel.vimadaptor.commons.*;
+import sonata.kernel.vimadaptor.commons.nsd.ConnectionPoint;
 import sonata.kernel.vimadaptor.commons.vnfd.VirtualDeploymentUnit;
 import sonata.kernel.vimadaptor.commons.vnfd.VnfDescriptor;
 import sonata.kernel.vimadaptor.wrapper.*;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 
-
+/**
+ * API capabilities of vim-emu:
+ * - get datacenter 1 or all
+ * - compute: get VNF(s)
+ * - compute - new_vnf: adds VNF based on: '{"image":"ubuntu:trusty", "network":"(id=input,ip=10.0.0.1/24),(id=output,ip=20.0.0.1/24)"}'
+ * - compute - delete "vnfX
+ * '{"image":"ubuntu:trusty", "network":"(id=input,ip=10.0.0.1/24),(id=output,ip=20.0.0.1/24)"}'
+ * <p>
+ * later:
+ * - compute/resources: control resource allocation by VNFx
+ * - Chains:
+ */
 public class VIMEmuWrapper extends ComputeWrapper {
 
     private static final org.slf4j.Logger Logger = LoggerFactory.getLogger(VIMEmuWrapper.class);
@@ -65,32 +79,34 @@ public class VIMEmuWrapper extends ComputeWrapper {
         this.r = new Random(System.currentTimeMillis());
     }
 
-    /*
+    /**
      * (non-Javadoc)
+     * Necessary information to deploy function on vim-emu:
+     * - image-name
+     * - network interface(s)
+     * The chall. part of this is: VNFs can contain multiple VDUs. Those VDUs have concrete "physical" network adapters,
+     * but VNFs can also define connectionPoints. In terms of forwarding_path enforcement, this means that we first have
+     * to deploy the VDUs as it is, and after this parse the top level VNF forwarding_path in order to enforce it in the
+     * environment of vim-emu.
+     * TODO:
+     * [ ] Extract network interfaces
+     * [ ] Start docker container via image name of VirtualDeploymentUnit
+     * [ ] Add links via VnfVirtualLink
+     * <p>
+     * Scratch: Deploy every single VDU contained in the VNF.
      *
-     * @see
-     * sonata.kernel.vimadaptor.wrapper.ComputeWrapper#deployFunction(sonata.kernel.vimadaptor.commons
-     * .FunctionDeployPayload, java.lang.String)
+     * @see sonata.kernel.vimadaptor.wrapper.ComputeWrapper#deployFunction(FunctionDeployPayload, String)
      */
     @Override
     public void deployFunction(FunctionDeployPayload data, String sid) {
+        for (VirtualDeploymentUnit virtualDeploymentUnit : data.getVnfd().getVirtualDeploymentUnits()) {
+            List<String> networks = new ArrayList<>();
+            for (ConnectionPoint connectionPoint : virtualDeploymentUnit.getConnectionPoints()) {
+                networks.add(connectionPoint.getId().split(":")[1]);
+            }
+            deployFunctionOnVIM(virtualDeploymentUnit.getVmImage(), data.getVnfd().getName() + virtualDeploymentUnit.getId(), networks);
+        }
         System.out.println("Hey, now I should deploy a function");
-        HttpClient httpClient = HttpClientBuilder.create().build();
-        HttpPut httpPut = new HttpPut("http://127.0.0.1:5001/restapi/compute/datacenter1/new_vnf");
-        httpPut.addHeader("Content-Type", "application/json");
-        StringEntity params = null;
-        try {
-            params = new StringEntity("{\"image\":\"ubuntu:trusty\", \"network\":\"(id=input,ip=10.0.0.1/24),(id=output,ip=20.0.0.1/24)\"}");
-        } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
-        }
-        httpPut.setEntity(params);
-
-        try {
-            httpClient.execute(httpPut);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
 
         VnfDescriptor vnf = data.getVnfd();
         VnfRecord vnfr = new VnfRecord();
@@ -190,6 +206,25 @@ public class VIMEmuWrapper extends ComputeWrapper {
         */
     }
 
+    private void deployFunctionOnVIM(String vmImage, String name, List<String> networks) {/*
+        HttpClient httpClient = HttpClientBuilder.create().build();
+        HttpPut httpPut = new HttpPut("http://127.0.0.1:5001/restapi/compute/datacenter1/"+name);
+        httpPut.addHeader("Content-Type", "application/json");
+        StringEntity params = null;
+        try {
+            params = new StringEntity("{\"image\":\"ubuntu:trusty\", \"network\":\"(id="+name+"-"+networks.get(0)+")\"}");
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+        httpPut.setEntity(params);
+
+        try {
+            httpClient.execute(httpPut);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }*/
+    }
+
     @Deprecated
     @Override
     public boolean deployService(ServiceDeployPayload data, String callSid) {
@@ -229,6 +264,8 @@ public class VIMEmuWrapper extends ComputeWrapper {
      */
     @Override
     public boolean isImageStored(VnfImage image, String callSid) {
+        System.out.println("ABC");
+
         return true;
     }
 
