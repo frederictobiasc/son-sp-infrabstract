@@ -282,9 +282,9 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
         }
 
         System.out.println("FunctionDeployResponse: ");
-        System.out.println(output);
+        System.out.println(rawAnswer);
         Assert.assertTrue("No response received after function deployment", retry < maxRetry);
-        FunctionDeployResponse response = mapper.readValue(output, FunctionDeployResponse.class);
+        FunctionDeployResponse response = mapper.readValue(rawAnswer, FunctionDeployResponse.class);
         Assert.assertTrue(response.getRequestStatus().equals("COMPLETED"));
         Assert.assertTrue(response.getVnfr().getStatus() == Status.normal_operation);
         records.add(response.getVnfr());

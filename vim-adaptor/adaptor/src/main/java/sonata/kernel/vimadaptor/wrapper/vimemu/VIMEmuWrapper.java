@@ -30,14 +30,23 @@ import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.jsonFormatVisitors.JsonObjectFormatVisitor;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.util.EntityUtils;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import org.json.JSONTokener;
 import org.slf4j.LoggerFactory;
 import sonata.kernel.vimadaptor.commons.*;
 import sonata.kernel.vimadaptor.commons.nsd.ConnectionPoint;
+import sonata.kernel.vimadaptor.commons.nsd.ConnectionPointRecord;
+import sonata.kernel.vimadaptor.commons.nsd.ConnectionPointType;
+import sonata.kernel.vimadaptor.commons.nsd.InterfaceRecord;
 import sonata.kernel.vimadaptor.commons.vnfd.VirtualDeploymentUnit;
 import sonata.kernel.vimadaptor.commons.vnfd.VnfDescriptor;
 import sonata.kernel.vimadaptor.wrapper.*;
@@ -68,7 +77,6 @@ public class VIMEmuWrapper extends ComputeWrapper {
      * suitable object with these fields, able to handle the API call asynchronously, generate a
      * response and update the observer
      */
-    @SuppressWarnings("unused")
     private ServiceDeployPayload data;
     private Random r;
 
@@ -89,9 +97,11 @@ public class VIMEmuWrapper extends ComputeWrapper {
      * to deploy the VDUs as it is, and after this parse the top level VNF forwarding_path in order to enforce it in the
      * environment of vim-emu.
      * TODO:
-     * [ ] Extract network interfaces
-     * [ ] Start docker container via image name of VirtualDeploymentUnit
+     * [X] Extract network interfaces
+     * [X] Start docker container via image name of VirtualDeploymentUnit
+     * [X] Wrap vim-emu response into FunctionDeployResponse
      * [ ] Add links via VnfVirtualLink
+     * [ ] Add Error handling
      * <p>
      * Scratch: Deploy every single VDU contained in the VNF.
      *
@@ -99,29 +109,25 @@ public class VIMEmuWrapper extends ComputeWrapper {
      */
     @Override
     public void deployFunction(FunctionDeployPayload data, String sid) {
+        VnfRecord vnfr = new VnfRecord();
         for (VirtualDeploymentUnit virtualDeploymentUnit : data.getVnfd().getVirtualDeploymentUnits()) {
             List<String> networks = new ArrayList<>();
             for (ConnectionPoint connectionPoint : virtualDeploymentUnit.getConnectionPoints()) {
-                networks.add(connectionPoint.getId().split(":")[1]);
+                networks.add(connectionPoint.getId());
             }
-            deployFunctionOnVIM(virtualDeploymentUnit.getVmImage(), data.getVnfd().getName() + virtualDeploymentUnit.getId(), networks);
+
+            VduRecord vduRecord = deployVDUOnVIM(virtualDeploymentUnit.getVmImage(), data.getVnfd().getName() +
+                    virtualDeploymentUnit.getId(), networks);
+            vduRecord.setResourceRequirements(virtualDeploymentUnit.getResourceRequirements()); // Not provided by emu
+            vnfr.addVdu(vduRecord);
         }
-        System.out.println("Hey, now I should deploy a function");
 
         VnfDescriptor vnf = data.getVnfd();
-        VnfRecord vnfr = new VnfRecord();
         vnfr.setDescriptorVersion("vnfr-schema-01");
         vnfr.setStatus(Status.normal_operation);
         vnfr.setDescriptorReference(vnf.getUuid());
         vnfr.setId(vnf.getInstanceUuid());
-        for (VirtualDeploymentUnit vdu : vnf.getVirtualDeploymentUnits()) {
-            VduRecord vdur = new VduRecord();
-            vdur.setId(vdu.getId());
-            vdur.setNumberOfInstances(1);
-            vdur.setVduReference(vnf.getName() + ":" + vdu.getId());
-            vdur.setVmImage(vdu.getVmImage());
-            vnfr.addVdu(vdur);
-        }
+        
         FunctionDeployResponse functionDeployResponse = new FunctionDeployResponse();
         functionDeployResponse.setRequestStatus("COMPLETED");
         functionDeployResponse.setInstanceVimUuid("Stack-" + vnf.getInstanceUuid());
@@ -135,6 +141,7 @@ public class VIMEmuWrapper extends ComputeWrapper {
         mapper.disable(SerializationFeature.WRITE_NULL_MAP_VALUES);
         mapper.setSerializationInclusion(Include.NON_NULL);
         String body;
+        
         try {
             body = mapper.writeValueAsString(functionDeployResponse);
             this.setChanged();
@@ -145,88 +152,95 @@ public class VIMEmuWrapper extends ComputeWrapper {
             Logger.error(e.getMessage(), e);
         }
 
-        Logger.debug("[MockWrapper] Response generated. Writing record in the Infr. Repos...");
+        Logger.debug("[VIMEmuWrapper] Response generated. Writing record in the Infr. Repos...");
         WrapperBay.getInstance().getVimRepo().writeFunctionInstanceEntry(vnf.getInstanceUuid(),
                 data.getServiceInstanceId(), this.getConfig().getUuid());
-        Logger.debug("[MockWrapper] All done!");
-
-
-        /*
-        double avgTime = 51987.21;
-        double stdTime = 14907.12;
-        Logger.debug("[VIMEmuWrapper] deploying function...");
-        waitGaussianTime(avgTime, stdTime);
-        Logger.debug("[VIMEmuWrapper] function deployed. Generating response...");
-        VnfDescriptor vnf = data.getVnfd();
-        VnfRecord vnfr = new VnfRecord();
-        vnfr.setDescriptorVersion("vnfr-schema-01");
-        vnfr.setStatus(Status.normal_operation);
-        vnfr.setDescriptorReference(vnf.getUuid());
-        // vnfr.setDescriptorReferenceName(vnf.getName());
-        // vnfr.setDescriptorReferenceVendor(vnf.getVendor());
-        // vnfr.setDescriptorReferenceVersion(vnf.getVersion());
-
-        vnfr.setId(vnf.getInstanceUuid());
-        for (VirtualDeploymentUnit vdu : vnf.getVirtualDeploymentUnits()) {
-            VduRecord vdur = new VduRecord();
-            vdur.setId(vdu.getId());
-            vdur.setNumberOfInstances(1);
-            vdur.setVduReference(vnf.getName() + ":" + vdu.getId());
-            vdur.setVmImage(vdu.getVmImage());
-            vnfr.addVdu(vdur);
+        Logger.debug("[VIMEmuWrapper] All done!");
         }
-        FunctionDeployResponse response = new FunctionDeployResponse();
-        response.setRequestStatus("COMPLETED");
-        response.setInstanceVimUuid("Stack-" + vnf.getInstanceUuid());
-        response.setInstanceName("Stack-" + vnf.getInstanceUuid());
-        response.setVimUuid(this.getConfig().getUuid());
-        response.setMessage("");
-        response.setVnfr(vnfr);
-        Logger.info("Response created. Serializing...");
 
-        ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
-        mapper.disable(SerializationFeature.WRITE_EMPTY_JSON_ARRAYS);
-        mapper.enable(SerializationFeature.WRITE_ENUMS_USING_TO_STRING);
-        mapper.disable(SerializationFeature.WRITE_NULL_MAP_VALUES);
-        mapper.setSerializationInclusion(Include.NON_NULL);
-        String body;
-        try {
-            body = mapper.writeValueAsString(response);
-            this.setChanged();
-            Logger.info("Serialized. notifying call processor");
-            WrapperStatusUpdate update = new WrapperStatusUpdate(sid, "SUCCESS", body);
-            this.notifyObservers(update);
-        } catch (JsonProcessingException e) {
-            Logger.error(e.getMessage(), e);
-        }
-        Logger.debug("[MockWrapper] Response generated. Writing record in the Infr. Repos...");
-        WrapperBay.getInstance().getVimRepo().writeFunctionInstanceEntry(vnf.getInstanceUuid(),
-                data.getServiceInstanceId(), this.getConfig().getUuid());
-        Logger.debug("[MockWrapper] All done!");
-        */
-    }
-
-    private void deployFunctionOnVIM(String vmImage, String name, List<String> networks) {/*
+    /**
+     * @param vmImage
+     * @param name
+     * @param networks VNFC-Instance has been ignored
+     *                 TODO: Make datacenter variable (URI)
+     *                 TODO: Exception Handeling
+     *                 TODO: Create and return VduRecord
+     *                 TODO: Track vduReference (GitHub)
+     */
+    private VduRecord deployVDUOnVIM(String vmImage, String name, List<String> networks) {
+        String networkParameters = createNetworkParameters(name, networks);
+        String putParameters = String.format("{\"image\":\"%s\", \"network\":\"%s\"}", "ubuntu:trusty", networkParameters);
         HttpClient httpClient = HttpClientBuilder.create().build();
-        HttpPut httpPut = new HttpPut("http://127.0.0.1:5001/restapi/compute/datacenter1/"+name);
+        HttpPut httpPut = new HttpPut("http://127.0.0.1:5Str001/restapi/compute/dc1/" + name);
         httpPut.addHeader("Content-Type", "application/json");
-        StringEntity params = null;
         try {
-            params = new StringEntity("{\"image\":\"ubuntu:trusty\", \"network\":\"(id="+name+"-"+networks.get(0)+")\"}");
+            httpPut.setEntity(new StringEntity(putParameters));
         } catch (UnsupportedEncodingException e) {
             e.printStackTrace();
         }
-        httpPut.setEntity(params);
-
+        HttpResponse response = null;
         try {
-            httpClient.execute(httpPut);
+            response = httpClient.execute(httpPut);
         } catch (IOException e) {
             e.printStackTrace();
-        }*/
+        }
+        String rawAnswer = null;
+        try {
+            rawAnswer = EntityUtils.toString(response.getEntity());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        JSONTokener tokener = new JSONTokener(rawAnswer);
+        JSONObject answer = (JSONObject) tokener.nextValue();
+
+        //create ConnectionPointRecords:
+        JSONArray status = answer.getJSONArray("network");
+        ArrayList<ConnectionPointRecord> connectionPointRecords = new ArrayList<>();
+        for (int i = 0; i < status.length(); i++) {
+            JSONObject obj = status.getJSONObject(i);
+            ConnectionPointRecord cp = new ConnectionPointRecord();
+            cp.setId(obj.getString("intf_name"));
+            cp.setType(ConnectionPointType.INT);
+            InterfaceRecord ir = new InterfaceRecord();
+            ir.setHardwareAddress(obj.getString("mac"));
+            ir.setAddress(obj.getString("ip").split("/")[0]); // because ip:*.*.*.*/*
+            ir.setNetmask(obj.getString("netmask"));
+            cp.setInterface(ir);
+            connectionPointRecords.add(cp);
+        }
+        VnfcInstance vnfcInstance = new VnfcInstance();
+        vnfcInstance.setConnectionPoints(connectionPointRecords);
+        ArrayList<VnfcInstance> vnfcInstances = new ArrayList<>();
+        vnfcInstances.add(vnfcInstance);
+        VduRecord vduRecord = new VduRecord();
+        vduRecord.setVnfcInstance(vnfcInstances);
+
+        // add vduRecordData
+
+        vduRecord.setId(answer.getString("id"));
+        vduRecord.setNumberOfInstances(1);
+        vduRecord.setVduReference(name + ":" + vduRecord.getId()); // As mentioned in SONATA/D3.1, 2016-07-07
+        vduRecord.setVmImage(answer.getString("image"));
+        //vduRecord.setResourceRequirements(); // setted one level above
+        System.out.println("Checkpoint");
+        return vduRecord;
     }
 
-    @Deprecated
-    @Override
+
+    private String createNetworkParameters(String name, List<String> networks) {
+        StringBuilder parameterBuilder = new StringBuilder();
+        for (String networkID : networks) {
+            int hashID = (name + networkID).hashCode();
+            parameterBuilder.append(
+                    String.format("(id=%d)", hashID) + ","
+            );
+        }
+        parameterBuilder.deleteCharAt(parameterBuilder.length() - 1); // delete last comma
+        return parameterBuilder.toString();
+    }
+
+
     public boolean deployService(ServiceDeployPayload data, String callSid) {
         this.data = data;
         this.sid = callSid;
@@ -311,12 +325,11 @@ public class VIMEmuWrapper extends ComputeWrapper {
 
     @Override
     public void scaleFunction(FunctionScalePayload data, String sid) {
-        // TODO - smendel - add implementation and comments on function
     }
 
     @Override
     public String toString() {
-        return "MockWrapper-" + this.getConfig().getUuid();
+        return "VIMEmuWrapper-" + this.getConfig().getUuid();
     }
 
     /*
