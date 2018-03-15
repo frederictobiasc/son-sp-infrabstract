@@ -81,9 +81,9 @@ public class OvsWrapper extends NetworkWrapper {
 
   @Override
   public void configureNetworking(NetworkConfigurePayload data) throws Exception {
-    if (data.getNsd().getForwardingGraphs().size() <= 0)
+    if (data.getNsd().getForwardingGraphs().size() <= 0){
       throw new Exception("No Forwarding Graph specified in the descriptor");
-
+    }
     long start = System.currentTimeMillis();
 
     String serviceInstanceId = data.getServiceInstanceId();
