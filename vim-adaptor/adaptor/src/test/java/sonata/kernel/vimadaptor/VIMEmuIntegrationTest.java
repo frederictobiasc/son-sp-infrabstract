@@ -2,13 +2,12 @@ package sonata.kernel.vimadaptor;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.jetbrains.annotations.NotNull;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.FixMethodOrder;
 import org.junit.Test;
-import org.junit.runners.MethodSorters;
 import sonata.kernel.vimadaptor.commons.*;
 import sonata.kernel.vimadaptor.commons.nsd.ServiceDescriptor;
 import sonata.kernel.vimadaptor.commons.vnfd.VnfDescriptor;
@@ -26,76 +25,48 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-@FixMethodOrder(MethodSorters.NAME_ASCENDING)
+
+/**
+ * Tasks
+ *
+ * @TODO Move VIMEmuIntegrationTest into main to enable packaging into JAR
+ * @TODO Change test setup to: https://github.com/sonata-nfv/son-examples/tree/master/service-projects/sonata-fw-vtc-service-emu
+ * known as "Y1 demo service" consisting of
+ * - firewall
+ * - vtc (video telephone conferencing?)
+ */
 public class VIMEmuIntegrationTest implements MessageReceiver {
     private Lock accessOutput;
     private Condition outputUnlocked;
     private ObjectMapper mapper;
     private VnfDescriptor vtcVnfd;
     private VnfDescriptor vfwVnfd;
+    ServiceDescriptor networkServiceDescriptor;
     private ServiceDeployPayload nsdPayload;
+    private ServiceDeployPayload data;
     private TestConsumer consumer;
     private String lastHeartbeat = "";
     private String output = null;
-    private ServiceDeployPayload data;
-    private VnfDescriptor vnfd_socat;
-    private VnfDescriptor vnfd_squid;
-    private VnfDescriptor vnfd_apache;
 
     @Before
     /**
      * I'll try to set up an environment, let's see.
      */
     public void setUp() throws IOException, InterruptedException {
+        // Start AdapterCore and initialize communication for MessageReceiver
+        System.out.println("Setup Environment");
         accessOutput = new ReentrantLock();
         outputUnlocked = accessOutput.newCondition();
-        // Why sonata-demo instead of emulator-demo-nsd, what is vbar, vfoo, what?
-        System.out.println("Setup Environment");
-        ServiceDescriptor serviceDescriptor;
-        StringBuilder bodyBuilder = new StringBuilder();
-        BufferedReader in = new BufferedReader(new InputStreamReader(
-                new FileInputStream(new File("./YAML/sonata-demo.nsd")), Charset.forName("UTF-8")));
-        String line;
-        while ((line = in.readLine()) != null)
-            bodyBuilder.append(line + "\n\r");
-        this.mapper = SonataManifestMapper.getSonataMapper();
-
-        serviceDescriptor = mapper.readValue(bodyBuilder.toString(), ServiceDescriptor.class);
-        bodyBuilder = new StringBuilder();
-        in = new BufferedReader(new InputStreamReader(new FileInputStream(new File("./YAML/vbar.vnfd")),
-                Charset.forName("UTF-8")));
-        line = null;
-        while ((line = in.readLine()) != null)
-            bodyBuilder.append(line + "\n\r");
-        vtcVnfd = mapper.readValue(bodyBuilder.toString(), VnfDescriptor.class);
-
-        bodyBuilder = new StringBuilder();
-        in = new BufferedReader(new InputStreamReader(new FileInputStream(new File("./YAML/vfoo.vnfd")),
-                Charset.forName("UTF-8")));
-        line = null;
-        while ((line = in.readLine()) != null)
-            bodyBuilder.append(line + "\n\r");
-        vfwVnfd = mapper.readValue(bodyBuilder.toString(), VnfDescriptor.class);
-
-
-        this.nsdPayload = new ServiceDeployPayload();
-
-        nsdPayload.setServiceDescriptor(serviceDescriptor);
-        nsdPayload.addVnfDescriptor(vtcVnfd);
-        nsdPayload.addVnfDescriptor(vfwVnfd);
-        System.out.println("Test");
-        BlockingQueue<ServicePlatformMessage> muxQueue =
-                new LinkedBlockingQueue<ServicePlatformMessage>();
-        BlockingQueue<ServicePlatformMessage> dispatcherQueue =
-                new LinkedBlockingQueue<ServicePlatformMessage>();
-
+        BlockingQueue<ServicePlatformMessage>
+                muxQueue = new LinkedBlockingQueue<ServicePlatformMessage>(),
+                dispatcherQueue = new LinkedBlockingQueue<ServicePlatformMessage>();
         TestProducer producer = new TestProducer(muxQueue, this);
         consumer = new TestConsumer(dispatcherQueue);
         AdaptorCore core = new AdaptorCore(muxQueue, dispatcherQueue, consumer, producer, 0.1);
-
         core.start();
+
+        // Ensure AdaptorCore is running
         int counter = 0;
-        // Wait for TestProducer
         while (counter < 2) {
             if (lastHeartbeat.contains("RUNNING")) {
                 counter++;
@@ -103,35 +74,29 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
             Thread.sleep(1000);
         }
 
-        bodyBuilder = new StringBuilder();
-        in = new BufferedReader(new InputStreamReader(
-                new FileInputStream(new File("./YAML/emulator-demo-http-apache-vnfd.yml")), Charset.forName("UTF-8")));
+        // Read descriptors
+        mapper = SonataManifestMapper.getSonataMapper();
+        networkServiceDescriptor = mapper.readValue(getRawDescriptor(new File("./YAML/fw-vtc-nsd.yml")), ServiceDescriptor.class);
+        vfwVnfd = mapper.readValue(new File("./YAML/fw-vnf-vnfd.yml"), VnfDescriptor.class);
+        vtcVnfd = mapper.readValue(new File("./YAML/vtc-vnfd.yml"), VnfDescriptor.class);
+
+        // put everything together
+        this.nsdPayload = new ServiceDeployPayload();
+        nsdPayload.setServiceDescriptor(networkServiceDescriptor);
+        nsdPayload.addVnfDescriptor(vtcVnfd);
+        nsdPayload.addVnfDescriptor(vfwVnfd);
+
+
+    }
+
+    private String getRawDescriptor(File inputDescriptor) throws IOException {
+        StringBuilder stringBuilder = new StringBuilder();
+        BufferedReader in = new BufferedReader(new InputStreamReader(
+                new FileInputStream(inputDescriptor), Charset.forName("UTF-8")));
+        String line;
         while ((line = in.readLine()) != null)
-            bodyBuilder.append(line + "\n\r");
-        this.vnfd_socat = mapper.readValue(bodyBuilder.toString(), VnfDescriptor.class);
-
-        bodyBuilder = new StringBuilder();
-        in = new BufferedReader(new InputStreamReader(
-                new FileInputStream(new File("./YAML/emulator-demo-l4fw-socat-vnfd.yml")), Charset.forName("UTF-8")));
-        while ((line = in.readLine()) != null)
-            bodyBuilder.append(line + "\n\r");
-        this.vnfd_squid = mapper.readValue(bodyBuilder.toString(), VnfDescriptor.class);
-
-        bodyBuilder = new StringBuilder();
-        in = new BufferedReader(new InputStreamReader(
-                new FileInputStream(new File("./YAML/emulator-demo-proxy-squid-vnfd.yml")), Charset.forName("UTF-8")));
-        while ((line = in.readLine()) != null)
-            bodyBuilder.append(line + "\n\r");
-        this.vnfd_apache = mapper.readValue(bodyBuilder.toString(), VnfDescriptor.class);
-
-
-        this.data = new ServiceDeployPayload();
-        this.data.setServiceDescriptor(serviceDescriptor);
-        this.data.addVnfDescriptor(this.vnfd_apache);
-        this.data.addVnfDescriptor(this.vnfd_socat);
-        this.data.addVnfDescriptor(this.vnfd_squid);
-
-
+            stringBuilder.append(line + "\n\r");
+        return stringBuilder.toString();
     }
 
     /**
@@ -275,7 +240,7 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
                 "application/x-yaml", topic, UUID.randomUUID().toString(), topic);
         String rawAnswer = sendServicePlatformMessage(functionDeployMessage);
         Assert.assertNotNull(rawAnswer);
-        int retry=0, maxRetry=2;
+        int retry = 0, maxRetry = 2;
         while (rawAnswer.contains("heartbeat") || rawAnswer.contains("Vim Added") && retry < maxRetry) {
             waitOnOutput();
             retry++;
