@@ -162,16 +162,16 @@ public class VIMEmuWrapper extends ComputeWrapper {
      * @param vmImage
      * @param name
      * @param networks VNFC-Instance has been ignored
-     *                 TODO: Make datacenter variable (URI)
-     *                 TODO: Exception Handeling
-     *                 TODO: Create and return VduRecord
-     *                 TODO: Track vduReference (GitHub)
+     * TODO: Make datacenter variable (URI)
+     * TODO: Exception Handeling
+     * TODO: Create and return VduRecord
+     * TODO: Track vduReference (GitHub)
      */
     private VduRecord deployVDUOnVIM(String vmImage, String name, List<String> networks) {
         String networkParameters = createNetworkParameters(name, networks);
         String putParameters = String.format("{\"image\":\"%s\", \"network\":\"%s\"}", "ubuntu:trusty", networkParameters);
         HttpClient httpClient = HttpClientBuilder.create().build();
-        HttpPut httpPut = new HttpPut("http://127.0.0.1:5Str001/restapi/compute/dc1/" + name);
+        HttpPut httpPut = new HttpPut("http://127.0.0.1:5001/restapi/compute/dc1/" + name);
         httpPut.addHeader("Content-Type", "application/json");
         try {
             httpPut.setEntity(new StringEntity(putParameters));
