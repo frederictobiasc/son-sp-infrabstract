@@ -30,7 +30,6 @@ import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.jsonFormatVisitors.JsonObjectFormatVisitor;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
@@ -69,9 +68,9 @@ import java.util.Random;
  * - compute/resources: control resource allocation by VNFx
  * - Chains:
  */
-public class VIMEmuWrapper extends ComputeWrapper {
+public class VIMEmuComputeWrapper extends ComputeWrapper {
 
-    private static final org.slf4j.Logger Logger = LoggerFactory.getLogger(VIMEmuWrapper.class);
+    private static final org.slf4j.Logger Logger = LoggerFactory.getLogger(VIMEmuComputeWrapper.class);
     /*
      * Utility fields to implement the mock response creation. A real wrapper should instantiate a
      * suitable object with these fields, able to handle the API call asynchronously, generate a
@@ -82,7 +81,7 @@ public class VIMEmuWrapper extends ComputeWrapper {
 
     private String sid;
 
-    public VIMEmuWrapper(WrapperConfiguration config) {
+    public VIMEmuComputeWrapper(WrapperConfiguration config) {
         super(config);
         this.r = new Random(System.currentTimeMillis());
     }
@@ -152,10 +151,10 @@ public class VIMEmuWrapper extends ComputeWrapper {
             Logger.error(e.getMessage(), e);
         }
 
-        Logger.debug("[VIMEmuWrapper] Response generated. Writing record in the Infr. Repos...");
+        Logger.debug("[VIMEmuComputeWrapper] Response generated. Writing record in the Infr. Repos...");
         WrapperBay.getInstance().getVimRepo().writeFunctionInstanceEntry(vnf.getInstanceUuid(),
                 data.getServiceInstanceId(), this.getConfig().getUuid());
-        Logger.debug("[VIMEmuWrapper] All done!");
+        Logger.debug("[VIMEmuComputeWrapper] All done!");
         }
 
     /**
@@ -202,11 +201,11 @@ public class VIMEmuWrapper extends ComputeWrapper {
             ConnectionPointRecord cp = new ConnectionPointRecord();
             cp.setId(obj.getString("intf_name"));
             cp.setType(ConnectionPointType.INT);
-            InterfaceRecord ir = new InterfaceRecord();
-            ir.setHardwareAddress(obj.getString("mac"));
-            ir.setAddress(obj.getString("ip").split("/")[0]); // because ip:*.*.*.*/*
-            ir.setNetmask(obj.getString("netmask"));
-            cp.setInterface(ir);
+            InterfaceRecord interfaceRecord = new InterfaceRecord();
+            interfaceRecord.setHardwareAddress(obj.getString("mac"));
+            interfaceRecord.setAddress(obj.getString("ip").split("/")[0]); // because ip:*.*.*.*/*
+            interfaceRecord.setNetmask(obj.getString("netmask"));
+            cp.setInterface(interfaceRecord);
             connectionPointRecords.add(cp);
         }
         VnfcInstance vnfcInstance = new VnfcInstance();
@@ -329,7 +328,7 @@ public class VIMEmuWrapper extends ComputeWrapper {
 
     @Override
     public String toString() {
-        return "VIMEmuWrapper-" + this.getConfig().getUuid();
+        return "VIMEmuComputeWrapper-" + this.getConfig().getUuid();
     }
 
     /*

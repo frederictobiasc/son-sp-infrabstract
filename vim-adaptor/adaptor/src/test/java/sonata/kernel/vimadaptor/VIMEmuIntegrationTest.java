@@ -2,7 +2,6 @@ package sonata.kernel.vimadaptor;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.jetbrains.annotations.NotNull;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 import org.junit.Assert;
@@ -18,6 +17,7 @@ import sonata.kernel.vimadaptor.messaging.TestProducer;
 import java.io.*;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -27,10 +27,10 @@ import java.util.concurrent.locks.ReentrantLock;
 
 
 /**
- * Tasks
+ * This is (technically) not a unit test
  *
  * @TODO Move VIMEmuIntegrationTest into main to enable packaging into JAR
- * @TODO Change test setup to: https://github.com/sonata-nfv/son-examples/tree/master/service-projects/sonata-fw-vtc-service-emu
+ * @TODO test setup: https://github.com/sonata-nfv/son-examples/tree/master/service-projects/sonata-fw-vtc-service-emu
  * known as "Y1 demo service" consisting of
  * - firewall
  * - vtc (video telephone conferencing?)
@@ -43,10 +43,10 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
     private VnfDescriptor vfwVnfd;
     ServiceDescriptor networkServiceDescriptor;
     private ServiceDeployPayload nsdPayload;
-    private ServiceDeployPayload data;
     private TestConsumer consumer;
     private String lastHeartbeat = "";
     private String output = null;
+    private ArrayList<VnfRecord> vnfRecords;
 
     @Before
     /**
@@ -85,8 +85,27 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
         nsdPayload.setServiceDescriptor(networkServiceDescriptor);
         nsdPayload.addVnfDescriptor(vtcVnfd);
         nsdPayload.addVnfDescriptor(vfwVnfd);
+    }
 
-
+    /**
+     * Whereas this is no real unit test, but an integration test, this method is used to structure the order of
+     * execution during the test. The generated data of the containing steps is returned and used for calling the
+     * following methods in order to make the data dependencies easier to understand.
+     */
+    @Test
+    public void test() throws IOException, InterruptedException {
+        System.out.println("[EmulatorTest] Adding PoP 1");
+        String computeWrapperUUID = registerComputeVIM();
+        System.out.println("[EmulatorTest] Adding Network Wrapper for VIMEmu");
+        String networkWrapperUUID = registerNetworkVIM(computeWrapperUUID);
+        System.out.println("[EmulatorTest] Listing available VIMs.");
+        listVIMs();
+        System.out.println("[EmulatorTest] Prepare for service deployment.");
+        prepare(computeWrapperUUID);
+        System.out.println("[EmulatorTest] Deploy Functions");
+        deployFunctions(computeWrapperUUID);
+        System.out.println("[EmulatorTest] Configure Network");
+        configureNetwork();
     }
 
     private String getRawDescriptor(File inputDescriptor) throws IOException {
@@ -100,23 +119,6 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
     }
 
     /**
-     * Whereas this is no real unit test, but an integration test, this method is used to structure the order of
-     * execution during the test. The generated data of the containing steps is returned and used for calling the
-     * following methods in order to make the data dependencies easier to understand.
-     */
-    @Test
-    public void test() throws IOException, InterruptedException {
-        System.out.println("[EmulatorTest] Adding PoP 1");
-        String computeWrapperUUID = registerComputeVIM();
-        System.out.println("[EmulatorTest] Listing available VIMs.");
-        listVIMs();
-        System.out.println("[EmulatorTest] Prepare for service deployment.");
-        prepare(computeWrapperUUID);
-        System.out.println("[EmulatorTest] Deploy Functions");
-        deployFunctions(computeWrapperUUID);
-    }
-
-    /**
      * This registers VIM-Emu to VIM-Adaptor. The registering takes place in the postgres database. The concrete UUID is
      * important in order to adress the correct wrapper for the following actions.
      *
@@ -125,8 +127,6 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
      */
 
     public String registerComputeVIM() throws IOException, InterruptedException {
-
-
         String addVimBody = "{\"vim_type\":\"VIMEmu\", " + "\"configuration\":{"
                 + "\"tenant_ext_router\":\"26f732b2-74bd-4f8c-a60e-dae4fb6a7c14\", "
                 + "\"tenant_ext_net\":\"53d43a3e-8c86-48e6-b1cb-f1f2c48833de\"," + "\"tenant\":\"tenantName\","
@@ -150,9 +150,24 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
         return computeWrapperUuid;
     }
 
-    public void listVIMs() throws InterruptedException, IOException {
-        // List available PoP (Postgres-uuid)
+    private String registerNetworkVIM(String computeWrapperUUID) throws InterruptedException {
+        String addNetVimBody = "{\"vim_type\":\"VIMEmu\", " + "\"name\":\"vim-emu\","
+                + "\"vim_address\":\"127.0.0.1\",\"username\":\"username\",\"city\":\"Paderborn\",\"country\":\"Germany\",\"domain\":\"bla\","
+                + "\"pass\":\"password\",\"configuration\":{\"compute_uuid\":\"" + computeWrapperUUID + "\"}}";
+        String topic = "infrastructure.management.network.add";
+        ServicePlatformMessage addNetVimMessage = new ServicePlatformMessage(addNetVimBody,
+                "application/json", topic, UUID.randomUUID().toString(), topic);
+        String rawAnswer = sendServicePlatformMessage(addNetVimMessage);
+        JSONTokener tokener = new JSONTokener(rawAnswer);
+        JSONObject jsonObject = (JSONObject) tokener.nextValue();
+        String status = jsonObject.getString("request_status");
+        String netWrUuid = jsonObject.getString("uuid");
+        System.out.println("OVS Wrapper added, with uuid: " + netWrUuid);
+        System.out.println("Status:\n" + status);
+        return netWrUuid;
+    }
 
+    public void listVIMs() throws InterruptedException, IOException {
         String topic = "infrastructure.management.compute.list";
         ServicePlatformMessage listVimMessage =
                 new ServicePlatformMessage(null, null, topic, UUID.randomUUID().toString(), topic);
@@ -177,11 +192,11 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
      * @throws InterruptedException
      */
     public void prepare(String computeWrapperUUID) throws JsonProcessingException, InterruptedException {
-        // Prepare the system for a service deployment -> very generic
+        // Prepare the system for a service deployment -> very generic (ann. of ftc)
 
         ServicePreparePayload payload = new ServicePreparePayload();
 
-        payload.setInstanceId(data.getNsd().getInstanceUuid()); // Not sure, for what this NSD is used, because it is
+        payload.setInstanceId(nsdPayload.getNsd().getInstanceUuid()); // Not sure, for what this NSD is used, because it is
         // related to our deployment situation, see setUp()
         ArrayList<VimPreDeploymentList> vims = new ArrayList<>();
         VimPreDeploymentList vimDepList = new VimPreDeploymentList();
@@ -227,13 +242,13 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
 
     public void deployFunctions(String computeWrapperUUID) throws IOException, InterruptedException {
         // Deploy each of the VNFs
-        ArrayList<VnfRecord> records = new ArrayList<VnfRecord>();
+        vnfRecords = new ArrayList<>();
 
         // deploy apache
         FunctionDeployPayload vnfPayload = new FunctionDeployPayload();
-        vnfPayload.setVnfd(this.vnfd_apache);
+        vnfPayload.setVnfd(vfwVnfd);
         vnfPayload.setVimUuid(computeWrapperUUID);
-        vnfPayload.setServiceInstanceId(data.getNsd().getInstanceUuid());
+        vnfPayload.setServiceInstanceId(nsdPayload.getNsd().getInstanceUuid());
         String body = mapper.writeValueAsString(vnfPayload);
         String topic = "infrastructure.function.deploy";
         ServicePlatformMessage functionDeployMessage = new ServicePlatformMessage(body,
@@ -252,7 +267,7 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
         FunctionDeployResponse response = mapper.readValue(rawAnswer, FunctionDeployResponse.class);
         Assert.assertTrue(response.getRequestStatus().equals("COMPLETED"));
         Assert.assertTrue(response.getVnfr().getStatus() == Status.normal_operation);
-        records.add(response.getVnfr());
+        vnfRecords.add(response.getVnfr());
 
         /* At this point, the VNFs should be deployed correctly. Next: Configure intra-PoP chaining
         topic: infrastructure.chain.configure
@@ -276,9 +291,24 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
         return returnValue;
     }
 
-    @Test
-    public void test5ConfigureChaining() {
+    public void configureNetwork() throws JsonProcessingException, InterruptedException {
+        NetworkConfigurePayload networkConfigurePayload = new NetworkConfigurePayload();
+        networkConfigurePayload.setNsd(networkServiceDescriptor);
+        networkConfigurePayload.setServiceInstanceId("123");
+        networkConfigurePayload.setVnfds(new ArrayList<>(Arrays.asList(vtcVnfd, vfwVnfd)));
+        networkConfigurePayload.setVnfrs(vnfRecords);
 
+        String body = mapper.writeValueAsString(networkConfigurePayload);
+        String topic = "infrastructure.service.chain.configure";
+        ServicePlatformMessage functionDeployMessage = new ServicePlatformMessage(body,
+                "application/x-yaml", topic, UUID.randomUUID().toString(), topic);
+        String rawAnswer = sendServicePlatformMessage(functionDeployMessage);
+        Assert.assertNotNull(rawAnswer);
+        int retry = 0, maxRetry = 2;
+        while (rawAnswer.contains("heartbeat") || rawAnswer.contains("Vim Added") && retry < maxRetry) {
+            waitOnOutput();
+            retry++;
+        }
     }
 
     private void waitOnOutput() throws InterruptedException {

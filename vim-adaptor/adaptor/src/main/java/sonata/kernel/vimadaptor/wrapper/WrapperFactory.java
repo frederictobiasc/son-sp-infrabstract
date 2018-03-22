@@ -33,17 +33,17 @@ import sonata.kernel.vimadaptor.wrapper.openstack.OpenStackHeatWrapper;
 import sonata.kernel.vimadaptor.wrapper.ovsWrapper.OvsWrapper;
 import sonata.kernel.vimadaptor.wrapper.sp.ComputeSPWrapper;
 import sonata.kernel.vimadaptor.wrapper.sp.NetworkSPWrapper;
-import sonata.kernel.vimadaptor.wrapper.vimemu.VIMEmuWrapper;
+import sonata.kernel.vimadaptor.wrapper.vimemu.VIMEmuComputeWrapper;
+import sonata.kernel.vimadaptor.wrapper.vimemu.VIMEmuNetworkWrapper;
 
 public class WrapperFactory {
-
     private static final org.slf4j.Logger Logger = LoggerFactory.getLogger(WrapperFactory.class);
 
     /**
      * Uses the parser configuration to create the relevant Wrapper.
      *
      * @param config the WrapperConfiguration object describing the wrapper to create.
-     * @return the brand new wrapper
+     * @return wrapper object of requested type
      */
     public static Wrapper createWrapper(WrapperConfiguration config) {
         Wrapper output = null;
@@ -64,14 +64,12 @@ public class WrapperFactory {
             Logger.debug("Factory - Wrapper created.");
         } else {
             Logger.debug("Factory - Unable to create wrapper.");
-
         }
         return output;
     }
 
     private static ComputeWrapper createComputeWrapper(WrapperConfiguration config) {
         ComputeWrapper output = null;
-
         if (config.getVimVendor().equals(ComputeVimVendor.MOCK)) {
             output = new ComputeMockWrapper(config);
         } else if (config.getVimVendor().equals(ComputeVimVendor.HEAT)) {
@@ -79,11 +77,8 @@ public class WrapperFactory {
         } else if (config.getVimVendor().equals(ComputeVimVendor.SPVIM)) {
             output = new ComputeSPWrapper(config);
         } else if (config.getVimVendor().equals(ComputeVimVendor.VIMEMU)) {
-            output = new VIMEmuWrapper(config);
+            output = new VIMEmuComputeWrapper(config);
         }
-        // TODO Extends with all wrappers or refactor with a more OO type
-        // generation
-
         return output;
     }
 
@@ -95,6 +90,8 @@ public class WrapperFactory {
             output = new NetworkMockWrapper(config);
         } else if (config.getVimVendor().equals(NetworkVimVendor.SPVIM)) {
             output = new NetworkSPWrapper(config);
+        } else if (config.getVimVendor().equals(NetworkVimVendor.VIMEMU)) {
+            output = new VIMEmuNetworkWrapper(config);
         }
         return output;
     }
