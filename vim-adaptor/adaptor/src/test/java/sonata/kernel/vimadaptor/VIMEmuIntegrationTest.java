@@ -28,8 +28,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * This is (technically) not a unit test
- *
- * @TODO Move VIMEmuIntegrationTest into main to enable packaging into JAR
+ * Information: https://github.com/sonata-nfv/son-sp-infrabstract/wiki/Vim-Emulator-Wrapper-Development-and-Test-Setup
  * @TODO test setup: https://github.com/sonata-nfv/son-examples/tree/master/service-projects/sonata-fw-vtc-service-emu
  * known as "Y1 demo service" consisting of
  * - firewall
@@ -41,7 +40,7 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
     private ObjectMapper mapper;
     private VnfDescriptor vtcVnfd;
     private VnfDescriptor vfwVnfd;
-    ServiceDescriptor networkServiceDescriptor;
+    private ServiceDescriptor networkServiceDescriptor;
     private ServiceDeployPayload nsdPayload;
     private TestConsumer consumer;
     private String lastHeartbeat = "";
@@ -105,7 +104,7 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
         System.out.println("[EmulatorTest] Deploy Functions");
         deployFunctions(computeWrapperUUID);
         System.out.println("[EmulatorTest] Configure Network");
-        configureNetwork();
+        configureNetwork(networkWrapperUUID);
     }
 
     private String getRawDescriptor(File inputDescriptor) throws IOException {
@@ -291,7 +290,7 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
         return returnValue;
     }
 
-    public void configureNetwork() throws JsonProcessingException, InterruptedException {
+    public void configureNetwork(String networkWrapperUUID) throws JsonProcessingException, InterruptedException {
         NetworkConfigurePayload networkConfigurePayload = new NetworkConfigurePayload();
         networkConfigurePayload.setNsd(networkServiceDescriptor);
         networkConfigurePayload.setServiceInstanceId("123");
