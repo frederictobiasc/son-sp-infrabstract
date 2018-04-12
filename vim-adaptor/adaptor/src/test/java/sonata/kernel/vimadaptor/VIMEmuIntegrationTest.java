@@ -90,12 +90,23 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
      * Whereas this is no real unit test, but an integration test, this method is used to structure the order of
      * execution during the test. The generated data of the containing steps is returned and used for calling the
      * following methods in order to make the data dependencies easier to understand.
+     * - configureNetwork: We want to provide our registered VIMEmuNetworkWrapper with the serice paths.
+     * To best of my knowledge, the intended process should be like follows: Assemble a NetworkConfigurationPayload,
+     * containing the NetworkServiceDescriptor, the VNFd's and the VNFr's. In order to emulate ServicePlatforms
+     * behaviour, we need to extend the VNFd with an Instance_UUID. This UUID is used by the
+     * ConfigureNetworkCallProcessor in order to find the corresponding Compute-Wrapper and consequently the
+     * NetworkWrapper: Instance_UUID -> computeVimUuid -> networkVimUuid.
+     * In the end, the NetworkWrapper is invoked with the corresponding forwarding graph.
+     * The entry function_instances is added during:
+     * @see sonata.kernel.vimadaptor.wrapper.vimemu.VIMEmuComputeWrapper#deployFunction(FunctionDeployPayload, String)
+     *
+     *
      */
     @Test
     public void test() throws IOException, InterruptedException {
         System.out.println("[EmulatorTest] Adding PoP 1");
         String computeWrapperUUID = registerComputeVIM();
-        System.out.println("[EmulatorTest] Adding Network Wrapper for VIMEmu");
+        System.out.println("[EmulatorTest] Register Network Wrapper for VIMEmu");
         String networkWrapperUUID = registerNetworkVIM(computeWrapperUUID);
         System.out.println("[EmulatorTest] Listing available VIMs.");
         listVIMs();
@@ -259,7 +270,6 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
             waitOnOutput();
             retry++;
         }
-
         System.out.println("FunctionDeployResponse: ");
         System.out.println(rawAnswer);
         Assert.assertTrue("No response received after function deployment", retry < maxRetry);
