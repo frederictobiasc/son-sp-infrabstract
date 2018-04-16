@@ -182,7 +182,9 @@ public class ConfigureNetworkCallProcessor extends AbstractCallProcessor {
                         ArrayList<ForwardingGraph> tempGraph = new ArrayList<>();
                         tempGraph.add(partialGraph);
                         partialNsd.setForwardingGraphs(tempGraph);
+                        /*
 
+                         */
                         for (ConnectionPointReference cpr : connectionPoints) {
                             VnfDescriptor vnfd = cpRef2VnfdMap.get(cpr.getConnectionPointRef());
                             VnfRecord vnfr = cpRef2VnfrMap.get(cpr.getConnectionPointRef());

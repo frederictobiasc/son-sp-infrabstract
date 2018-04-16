@@ -694,7 +694,6 @@ public class DeployServiceTest implements MessageReceiver {
       synchronized (mon) {
         mon.wait(1000);
       }
-
     System.out.println(output);
     tokener = new JSONTokener(output);
     jsonObject = (JSONObject) tokener.nextValue();

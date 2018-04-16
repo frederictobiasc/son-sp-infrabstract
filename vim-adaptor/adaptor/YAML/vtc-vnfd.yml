@@ -86,3 +86,5 @@ connection_points:
   - id: "output"
     interface: "ipv4"
     type: "external"
+instance_uuid: 8a653f3e-2540-4baa-9f8d-98e94631defb
+uuid: 9df6a98f-9e11-4cb7-b3c0-b1375e7ca1a2

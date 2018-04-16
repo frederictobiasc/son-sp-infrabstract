@@ -15,6 +15,7 @@ import sonata.kernel.vimadaptor.messaging.TestConsumer;
 import sonata.kernel.vimadaptor.messaging.TestProducer;
 
 import java.io.*;
+import java.lang.reflect.Array;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -253,31 +254,24 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
     public void deployFunctions(String computeWrapperUUID) throws IOException, InterruptedException {
         // Deploy each of the VNFs
         vnfRecords = new ArrayList<>();
-
-        // deploy apache
-        FunctionDeployPayload vnfPayload = new FunctionDeployPayload();
-        vnfPayload.setVnfd(vfwVnfd);
-        vnfPayload.setVimUuid(computeWrapperUUID);
-        vnfPayload.setServiceInstanceId(nsdPayload.getNsd().getInstanceUuid());
-        String body = mapper.writeValueAsString(vnfPayload);
-        String topic = "infrastructure.function.deploy";
-        ServicePlatformMessage functionDeployMessage = new ServicePlatformMessage(body,
-                "application/x-yaml", topic, UUID.randomUUID().toString(), topic);
-        String rawAnswer = sendServicePlatformMessage(functionDeployMessage);
-        Assert.assertNotNull(rawAnswer);
-        int retry = 0, maxRetry = 2;
-        while (rawAnswer.contains("heartbeat") || rawAnswer.contains("Vim Added") && retry < maxRetry) {
-            waitOnOutput();
-            retry++;
+        // Deploy fw
+        for(VnfDescriptor vnfd : new ArrayList<>(Arrays.asList(vfwVnfd, vtcVnfd))){
+            String rawAnswer = sendServicePlatformMessage(assembleFunctionDeploymentPayload(vnfd, computeWrapperUUID));
+            Assert.assertNotNull(rawAnswer);
+            int retry = 0, maxRetry = 2;
+            while (rawAnswer.contains("heartbeat") || rawAnswer.contains("Vim Added") && retry < maxRetry) {
+                waitOnOutput();
+                retry++;
+            }
+            System.out.println("FunctionDeployResponse: ");
+            System.out.println(rawAnswer);
+            Assert.assertTrue("No response received after function deployment", retry < maxRetry);
+            FunctionDeployResponse response = mapper.readValue(rawAnswer, FunctionDeployResponse.class);
+            Assert.assertTrue(response.getRequestStatus().equals("COMPLETED"));
+            Assert.assertTrue(response.getVnfr().getStatus() == Status.normal_operation);
+            vnfRecords.add(response.getVnfr());
         }
-        System.out.println("FunctionDeployResponse: ");
-        System.out.println(rawAnswer);
-        Assert.assertTrue("No response received after function deployment", retry < maxRetry);
-        FunctionDeployResponse response = mapper.readValue(rawAnswer, FunctionDeployResponse.class);
-        Assert.assertTrue(response.getRequestStatus().equals("COMPLETED"));
-        Assert.assertTrue(response.getVnfr().getStatus() == Status.normal_operation);
-        vnfRecords.add(response.getVnfr());
-
+        // Deploy vtc
         /* At this point, the VNFs should be deployed correctly. Next: Configure intra-PoP chaining
         topic: infrastructure.chain.configure
         data: { service_instance_id: String, nsd: SonataNSDescriptor, vnfds: [{ SonataVNFDescriptor }],
@@ -286,6 +280,25 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
           */
 
 
+    }
+
+    /**
+     * Assembles a FunctionDeployMessage with the necessary information
+     * @param vnfd Function to deploy
+     * @param computeWrapperUUID Compute Wrapper handling the deployed service
+     * @return Assembled FunctionDeployMessage
+     * @throws JsonProcessingException
+     */
+    private ServicePlatformMessage assembleFunctionDeploymentPayload(VnfDescriptor vnfd, String computeWrapperUUID) throws JsonProcessingException {
+        FunctionDeployPayload vnfPayload = new FunctionDeployPayload();
+        vnfPayload.setVnfd(vnfd);
+        vnfPayload.setVimUuid(computeWrapperUUID);
+        vnfPayload.setServiceInstanceId(nsdPayload.getNsd().getInstanceUuid());
+        String body = mapper.writeValueAsString(vnfPayload);
+        String topic = "infrastructure.function.deploy";
+        ServicePlatformMessage functionDeployMessage = new ServicePlatformMessage(body,
+                "application/x-yaml", topic, UUID.randomUUID().toString(), topic);
+        return functionDeployMessage;
     }
 
     /**
