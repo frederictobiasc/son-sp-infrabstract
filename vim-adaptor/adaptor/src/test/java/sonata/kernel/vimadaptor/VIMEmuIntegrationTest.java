@@ -34,6 +34,9 @@ import java.util.concurrent.locks.ReentrantLock;
  * known as "Y1 demo service" consisting of
  * - firewall
  * - vtc (video telephone conferencing?)
+ * VnfDescriptors
+ * vtcVnfd and vfwVnfd are used for deploying the services (infrastructure.function.deploy) as well as for
+ * (infrastructure.service.chain.configure). The latter case brings the necessity of
  */
 public class VIMEmuIntegrationTest implements MessageReceiver {
     private Lock accessOutput;
@@ -111,6 +114,16 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
         String networkWrapperUUID = registerNetworkVIM(computeWrapperUUID);
         System.out.println("[EmulatorTest] Listing available VIMs.");
         listVIMs();
+        /*
+         * Now, we have to provide vtcVnfd, vfwVnfd and networkServiceDescriptor with runtime-information. Usually these
+         * information would be maintained and provided by the service platform. For further information consult:
+         * https://github.com/sonata-nfv/son-sp-infrabstract/wiki/VIM-Adaptor-API-Reference
+         */
+        networkServiceDescriptor.setInstanceUuid("9df6a98f-9e11-4cb7-b3c0-InAdUnitTest");
+        vfwVnfd.setInstanceUuid("8a653f3e-2540-4baa-9f8d-98e94631defa");
+        vfwVnfd.setUuid("9df6a98f-9e11-4cb7-b3c0-b1375e7ca1a1");
+        vtcVnfd.setInstanceUuid("8a653f3e-2540-4baa-9f8d-98e94631defb");
+        vtcVnfd.setUuid("9df6a98f-9e11-4cb7-b3c0-b1375e7ca1a2");
         System.out.println("[EmulatorTest] Prepare for service deployment.");
         prepare(computeWrapperUUID);
         System.out.println("[EmulatorTest] Deploy Functions");
@@ -319,7 +332,6 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
         networkConfigurePayload.setServiceInstanceId("123");
         networkConfigurePayload.setVnfds(new ArrayList<>(Arrays.asList(vtcVnfd, vfwVnfd)));
         networkConfigurePayload.setVnfrs(vnfRecords);
-
         String body = mapper.writeValueAsString(networkConfigurePayload);
         String topic = "infrastructure.service.chain.configure";
         ServicePlatformMessage functionDeployMessage = new ServicePlatformMessage(body,

@@ -68,7 +68,6 @@ virtual_links:
     connection_points_reference:
       - "serviceout"
       - "servicein"
-instance_uuid: 9df6a98f-9e11-4cb7-b3c0-InAdUnitTest
 ##
 ## The forwarding graphs.
 ##

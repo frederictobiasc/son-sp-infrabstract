@@ -43,7 +43,6 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
      */
     @Override
     public void configureNetworking(NetworkConfigurePayload data) {
-
         System.out.println(logName+"configureNetworking called");
         return;
     }
