@@ -216,8 +216,9 @@ public class VIMEmuComputeWrapper extends ComputeWrapper {
         vduRecord.setVnfcInstance(vnfcInstances);
 
         // add vduRecordData
-
-        vduRecord.setId(answer.getString("id"));
+        // Todo: Hardcoded setId for testing purposes
+        vduRecord.setId("vdu01");
+//        vduRecord.setId(answer.getString("id"));
         vduRecord.setNumberOfInstances(1);
         vduRecord.setVduReference(name + ":" + vduRecord.getId()); // As mentioned in SONATA/D3.1, 2016-07-07
         vduRecord.setVmImage(answer.getString("image"));
