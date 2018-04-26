@@ -27,6 +27,10 @@
 
 package sonata.kernel.vimadaptor.wrapper.vimemu;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.LoggerFactory;
 import sonata.kernel.vimadaptor.commons.*;
 import sonata.kernel.vimadaptor.commons.nsd.*;
@@ -36,13 +40,14 @@ import sonata.kernel.vimadaptor.commons.vnfd.VnfVirtualLink;
 import sonata.kernel.vimadaptor.wrapper.NetworkWrapper;
 import sonata.kernel.vimadaptor.wrapper.WrapperConfiguration;
 import sonata.kernel.vimadaptor.wrapper.ovsWrapper.OrderedMacAddress;
+import sonata.kernel.vimadaptor.wrapper.ovsWrapper.OvsPayload;
 
-import java.io.File;
-import java.io.FileReader;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Properties;
+import java.io.*;
+import java.net.InetAddress;
+import java.net.Socket;
+import java.net.SocketTimeoutException;
+import java.nio.charset.Charset;
+import java.util.*;
 
 public class VIMEmuNetworkWrapper extends NetworkWrapper {
     private static final String logName = "[VIMEmuNetworkWrapper] ";
@@ -55,6 +60,7 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
 
     }
 
+
     /**
      * @see sonata.kernel.vimadaptor.wrapper.NetworkWrapper#configureNetworking(NetworkConfigurePayload)
      */
@@ -64,147 +70,71 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
         if (data.getNsd().getForwardingGraphs().size() <= 0) {
             throw new Exception("No Forwarding Graph specified in the descriptor");
         }
-        long start = System.currentTimeMillis();
 
-        String serviceInstanceId = data.getServiceInstanceId();
-        ServiceDescriptor nsd = data.getNsd();
-        ArrayList<VnfRecord> vnfrs = data.getVnfrs();
-        ArrayList<VnfDescriptor> vnfds = data.getVnfds();
-        ForwardingGraph graph = nsd.getForwardingGraphs().get(0);
-        NetworkForwardingPath path = graph.getNetworkForwardingPaths().get(0);
-
-        ArrayList<ConnectionPointReference> pathCp = path.getConnectionPoints();
-
-        Collections.sort(pathCp);
+        ArrayList<ConnectionPointReference> connectionPoints = data.getNsd().getForwardingGraphs().get(0).getNetworkForwardingPaths().get(0).getConnectionPoints();
+        Collections.sort(connectionPoints);
         int portIndex = 0;
 
-        ArrayList<OrderedMacAddress> odlList = new ArrayList<OrderedMacAddress>();
+        ArrayList<OrderedMacAddress> odlList = new ArrayList<>();
         // Pre-populate structures for efficent search.
 
-        HashMap<String, String> vnfIdToNameMap = new HashMap<String, String>();
 
-        for (NetworkFunction nf : nsd.getNetworkFunctions()) {
-            vnfIdToNameMap.put(nf.getVnfId(), nf.getVnfName());
-        }
+        for (ConnectionPointReference connectionPointReference : connectionPoints) {
+            ConnectionPointRecord matchingConnectionPointRecord = null;
+            VnfDescriptor vnfd = NetworkFunctionHelper.getVnfdByName(data.getVnfds(), NetworkFunctionHelper.getVnfNameById(data.getNsd().getNetworkFunctions(), connectionPointReference.getVnfId()));
+            VnfRecord vnfr = NetworkFunctionHelper.getVnfrByVnfdReference(data.getVnfrs(), vnfd.getUuid());
+            VnfVirtualLink inputLink = getInputLink(connectionPointReference, vnfd);
+            String vnfConnectionPointReference = getVnfConnectionPointReference(connectionPointReference, inputLink);
 
-        HashMap<String, VnfDescriptor> nameToVnfdMap = new HashMap<String, VnfDescriptor>();
-        for (VnfDescriptor vnfd : vnfds) {
-            nameToVnfdMap.put(vnfd.getName(), vnfd);
-        }
+            Logger.debug("Searching for CpRecord of Cp: " + vnfConnectionPointReference);
 
-        HashMap<String, VnfRecord> vnfdToVnfrMap = new HashMap<String, VnfRecord>();
-        for (VnfRecord vnfr : vnfrs) {
-            vnfdToVnfrMap.put(vnfr.getDescriptorReference(), vnfr);
-        }
+            String vcId = null;
+            String[] split = vnfConnectionPointReference.split(":");
+            String vduId = split[0];
+            String vnfConnectionConnectionPointName = split[1];
+            if (split.length != 2) {
+                throw new Exception(
+                        "Illegal Format: A connection point reference should be in the format vdu_id:cp_name. Found: "
+                                + vnfConnectionPointReference);
+            }
 
-        for (ConnectionPointReference cpr : pathCp) {
-            String name = cpr.getConnectionPointRef();
-            if (!name.contains(":")) {
-                continue;
-            } else {
-                String[] split = name.split(":");
-                if (split.length != 2) {
-                    throw new Exception(
-                            "Illegal Format: A connection point reference should be in the format vnfId:CpName. It was "
-                                    + name);
-                }
-                String vnfId = split[0];
-                String cpRef = split[1];
-                String vnfName = vnfIdToNameMap.get(vnfId);
-                if (vnfName == null) {
-                    throw new Exception("Illegal Format: Unable to bind vnfName to the vnfId: " + vnfId);
-                }
-                VnfDescriptor vnfd = nameToVnfdMap.get(vnfName);
-                if (vnfd == null) {
-                    throw new Exception("Illegal Format: Unable to bind VNFD to the vnfName: " + vnfName);
-                }
-
-                VnfRecord vnfr = vnfdToVnfrMap.get(vnfd.getUuid());
-                if (vnfr == null) {
-                    throw new Exception("Illegal Format: Unable to bind VNFD to the VNFR: " + vnfName);
-                }
-
-                VnfVirtualLink inputLink = null;
-                for (VnfVirtualLink link : vnfd.getVirtualLinks()) {
-                    if (link.getConnectionPointsReference().contains(cpRef)) {
-                        inputLink = link;
-                        break;
-                    }
-                }
-                if (inputLink == null) {
-                    for (VnfVirtualLink link : vnfd.getVirtualLinks()) {
-                        Logger.info(link.getConnectionPointsReference().toString());
-                    }
-                    throw new Exception(
-                            "Illegal Format: unable to find the vnfd.VL connected to the VNFD.CP=" + vnfId + ":" + cpRef);
-                }
-
-                if (inputLink.getConnectionPointsReference().size() != 2) {
-                    throw new Exception(
-                            "Illegal Format: A vnf in/out vl should connect exactly two CPs. found: "
-                                    + inputLink.getConnectionPointsReference().size());
-                }
-                String vnfcCpReference = null;
-                for (String cp : inputLink.getConnectionPointsReference()) {
-                    if (!cp.equals(cpRef)) {
-                        vnfcCpReference = cp;
-                        break;
-                    }
-                }
-                if (vnfcCpReference == null) {
-                    throw new Exception(
-                            "Illegal Format: Unable to find the VNFC Cp name connected to this in/out VNF VL");
-                }
-
-                Logger.debug("Searching for CpRecord of Cp: " + vnfcCpReference);
-                ConnectionPointRecord matchingCpRec = null;
-                String vcId = null;
-                split = vnfcCpReference.split(":");
-                String vduId = split[0];
-                String vnfcCpName = split[1];
-                if (split.length != 2) {
-                    throw new Exception(
-                            "Illegal Format: A VL connection point reference should be in the format vdu_id:cp_name. Found: "
-                                    + vnfcCpReference);
-                }
-
-                for (VduRecord vdu : vnfr.getVirtualDeploymentUnits()) {
-                    if (vdu.getId().equals(vduId)) {
-                        for (VnfcInstance vnfc : vdu.getVnfcInstance()) {
-                            for (ConnectionPointRecord cpRec : vnfc.getConnectionPoints()) {
-                                Logger.debug("Checking " + cpRec.getId());
-                                if (vnfcCpName.equals(cpRec.getId())) {
-                                    matchingCpRec = cpRec;
-                                    vcId = vnfc.getVcId();
-                                    break;
-                                }
+            for (VduRecord vdu : vnfr.getVirtualDeploymentUnits()) {
+                if (vdu.getId().equals(vduId)) {
+                    for (VnfcInstance vnfc : vdu.getVnfcInstance()) {
+                        for (ConnectionPointRecord cpRec : vnfc.getConnectionPoints()) {
+                            Logger.debug("Checking " + cpRec.getId());
+                            if (vnfConnectionConnectionPointName.equals(cpRec.getId())) {
+                                matchingConnectionPointRecord = cpRec;
+                                vcId = vnfc.getVcId();
+                                break;
                             }
                         }
                     }
                 }
-
-                String qualifiedName = vnfName + "." + vnfcCpReference + "." + nsd.getInstanceUuid();
-                // HeatPort connectedPort = null;
-                // for (HeatPort port : composition.getPorts()) {
-                // if (port.getPortName().equals(qualifiedName)) {
-                // connectedPort = port;
-                // break;
-                // }
-                // }
-                if (matchingCpRec == null) {
-                    throw new Exception(
-                            "Illegal Format: cannot find the VNFR.VDU.VNFC.CPR matching: " + vnfcCpReference);
-                } else {
-                    // Eureka!
-                    OrderedMacAddress mac = new OrderedMacAddress();
-                    mac.setMac(matchingCpRec.getInterface().getHardwareAddress());
-                    mac.setPosition(portIndex);
-                    mac.setVcId(vcId);
-                    mac.setReferenceCp(qualifiedName);
-                    portIndex++;
-                    odlList.add(mac);
-                }
             }
+
+            String qualifiedName = NetworkFunctionHelper.getVnfNameById(data.getNsd().getNetworkFunctions(), connectionPointReference.getVnfId()) + "." + vnfConnectionPointReference + "." + data.getNsd().getInstanceUuid();
+            // HeatPort connectedPort = null;
+            // for (HeatPort port : composition.getPorts()) {
+            // if (port.getPortName().equals(qualifiedName)) {
+            // connectedPort = port;
+            // break;
+            // }
+            // }
+            if (matchingConnectionPointRecord == null) {
+                throw new Exception(
+                        "Illegal Format: cannot find the VNFR.VDU.VNFC.CPR matching: " + vnfConnectionPointReference);
+            } else {
+                // Eureka!
+                OrderedMacAddress mac = new OrderedMacAddress();
+                mac.setMac(matchingConnectionPointRecord.getInterface().getHardwareAddress());
+                mac.setPosition(portIndex);
+                mac.setVcId(vcId);
+                mac.setReferenceCp(qualifiedName);
+                portIndex++;
+                odlList.add(mac);
+            }
+
         }
 
         boolean nullNapCondition = data.getNap() == null
@@ -227,6 +157,45 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
             data.setNap(nap);
         }
         return;
+    }
+
+    @NotNull
+    private String getVnfConnectionPointReference(ConnectionPointReference connectionPointReference, VnfVirtualLink inputLink) throws Exception {
+        String vnfConnectionPointReference = null;
+        for (String cp : inputLink.getConnectionPointsReference()) {
+            if (!cp.equals(connectionPointReference.getConnectionPointRef())) {
+                vnfConnectionPointReference = cp;
+                break;
+            }
+        }
+        if (vnfConnectionPointReference == null) {
+            throw new Exception(
+                    "Illegal Format: Unable to find the VNFC Cp name connected to this in/out VNF VL");
+        }
+        return vnfConnectionPointReference;
+    }
+
+    @NotNull
+    private VnfVirtualLink getInputLink(ConnectionPointReference connectionPointReference, VnfDescriptor vnfd) throws Exception {
+        VnfVirtualLink inputLink = null;
+        for (VnfVirtualLink link : vnfd.getVirtualLinks()) {
+            if (link.getConnectionPointsReference().contains(connectionPointReference.getConnectionPointReferenceName())) {
+                inputLink = link;
+            }
+        }
+        if (inputLink == null) {
+            for (VnfVirtualLink link : vnfd.getVirtualLinks()) {
+                Logger.info(link.getConnectionPointsReference().toString());
+            }
+            throw new Exception(
+                    "Illegal Format: unable to find the vnfd.VL connected to the VNFD.CP=" + connectionPointReference.getVnfId() + ":" + connectionPointReference.getConnectionPointRef());
+        }
+        if (inputLink.getConnectionPointsReference().size() != 2) {
+            throw new Exception(
+                    "Illegal Format: A vnf in/out vl should connect exactly two CPs. found: "
+                            + inputLink.getConnectionPointsReference().size());
+        }
+        return inputLink;
     }
 
     /**
