@@ -27,27 +27,23 @@
 
 package sonata.kernel.vimadaptor.wrapper.vimemu;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.LoggerFactory;
 import sonata.kernel.vimadaptor.commons.*;
-import sonata.kernel.vimadaptor.commons.nsd.*;
+import sonata.kernel.vimadaptor.commons.nsd.ConnectionPointRecord;
+import sonata.kernel.vimadaptor.commons.nsd.NetworkFunctionHelper;
 import sonata.kernel.vimadaptor.commons.vnfd.ConnectionPointReference;
 import sonata.kernel.vimadaptor.commons.vnfd.VnfDescriptor;
 import sonata.kernel.vimadaptor.commons.vnfd.VnfVirtualLink;
 import sonata.kernel.vimadaptor.wrapper.NetworkWrapper;
 import sonata.kernel.vimadaptor.wrapper.WrapperConfiguration;
 import sonata.kernel.vimadaptor.wrapper.ovsWrapper.OrderedMacAddress;
-import sonata.kernel.vimadaptor.wrapper.ovsWrapper.OvsPayload;
 
-import java.io.*;
-import java.net.InetAddress;
-import java.net.Socket;
-import java.net.SocketTimeoutException;
-import java.nio.charset.Charset;
-import java.util.*;
+import java.io.File;
+import java.io.FileReader;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Properties;
 
 public class VIMEmuNetworkWrapper extends NetworkWrapper {
     private static final String logName = "[VIMEmuNetworkWrapper] ";
@@ -57,7 +53,6 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
     public VIMEmuNetworkWrapper(WrapperConfiguration config) {
         super(config);
         System.out.println(logName + "configureNetworking called");
-
     }
 
 
@@ -81,7 +76,9 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
 
         for (ConnectionPointReference connectionPointReference : connectionPoints) {
             ConnectionPointRecord matchingConnectionPointRecord = null;
-            VnfDescriptor vnfd = NetworkFunctionHelper.getVnfdByName(data.getVnfds(), NetworkFunctionHelper.getVnfNameById(data.getNsd().getNetworkFunctions(), connectionPointReference.getVnfId()));
+            VnfDescriptor vnfd = NetworkFunctionHelper.getVnfdByName(data.getVnfds(),
+                    NetworkFunctionHelper.getVnfNameById(data.getNsd().getNetworkFunctions(),
+                            connectionPointReference.getVnfId()));
             VnfRecord vnfr = NetworkFunctionHelper.getVnfrByVnfdReference(data.getVnfrs(), vnfd.getUuid());
             VnfVirtualLink inputLink = getInputLink(connectionPointReference, vnfd);
             String vnfConnectionPointReference = getVnfConnectionPointReference(connectionPointReference, inputLink);

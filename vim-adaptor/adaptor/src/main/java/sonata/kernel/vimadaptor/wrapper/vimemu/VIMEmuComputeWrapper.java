@@ -110,13 +110,15 @@ public class VIMEmuComputeWrapper extends ComputeWrapper {
     public void deployFunction(FunctionDeployPayload data, String sid) {
         VnfRecord vnfr = new VnfRecord();
         for (VirtualDeploymentUnit virtualDeploymentUnit : data.getVnfd().getVirtualDeploymentUnits()) {
-            List<String> networks = new ArrayList<>();
+            List<String> connectionPoints = new ArrayList<>();
             for (ConnectionPoint connectionPoint : virtualDeploymentUnit.getConnectionPoints()) {
-                networks.add(connectionPoint.getId());
+                connectionPoints.add(connectionPoint.getId());
             }
 
-            VduRecord vduRecord = deployVDUOnVIM(virtualDeploymentUnit.getVmImage(), data.getVnfd().getName() +
-                    virtualDeploymentUnit.getId(), networks);
+            VduRecord vduRecord = deployVDUOnVIM(virtualDeploymentUnit.getVmImage(),
+                    Common.translateToVimVduId(
+                            data.getVnfd().getName(), virtualDeploymentUnit.getId()
+                    ), connectionPoints);
             vduRecord.setResourceRequirements(virtualDeploymentUnit.getResourceRequirements()); // Not provided by emu
             vnfr.addVdu(vduRecord);
         }
@@ -126,7 +128,7 @@ public class VIMEmuComputeWrapper extends ComputeWrapper {
         vnfr.setStatus(Status.normal_operation);
         vnfr.setDescriptorReference(vnf.getUuid());
         vnfr.setId(vnf.getInstanceUuid());
-        
+
         FunctionDeployResponse functionDeployResponse = new FunctionDeployResponse();
         functionDeployResponse.setRequestStatus("COMPLETED");
         functionDeployResponse.setInstanceVimUuid("Stack-" + vnf.getInstanceUuid());
@@ -140,7 +142,7 @@ public class VIMEmuComputeWrapper extends ComputeWrapper {
         mapper.disable(SerializationFeature.WRITE_NULL_MAP_VALUES);
         mapper.setSerializationInclusion(Include.NON_NULL);
         String body;
-        
+
         try {
             body = mapper.writeValueAsString(functionDeployResponse);
             this.setChanged();
@@ -155,22 +157,22 @@ public class VIMEmuComputeWrapper extends ComputeWrapper {
         WrapperBay.getInstance().getVimRepo().writeFunctionInstanceEntry(vnf.getInstanceUuid(),
                 data.getServiceInstanceId(), this.getConfig().getUuid());
         Logger.debug("[VIMEmuComputeWrapper] All done!");
-        }
+    }
 
     /**
      * @param vmImage
-     * @param name
-     * @param networks VNFC-Instance has been ignored
-     * TODO: Make datacenter variable (URI)
-     * TODO: Exception Handeling
-     * TODO: Create and return VduRecord
-     * TODO: Track vduReference (GitHub)
+     * @param vimVduId
+     * @param connectionPoints VNFC-Instance has been ignored
+     *                         TODO: Make datacenter variable (URI)
+     *                         TODO: Exception Handeling
+     *                         TODO: Create and return VduRecord
+     *                         TODO: Track vduReference (GitHub)
      */
-    private VduRecord deployVDUOnVIM(String vmImage, String name, List<String> networks) {
-        String networkParameters = createNetworkParameters(name, networks);
+    private VduRecord deployVDUOnVIM(String vmImage, String vimVduId, List<String> connectionPoints) {
+        String networkParameters = createNetworkParameters(vimVduId, connectionPoints);
         String putParameters = String.format("{\"image\":\"%s\", \"network\":\"%s\"}", "ubuntu:trusty", networkParameters);
         HttpClient httpClient = HttpClientBuilder.create().build();
-        HttpPut httpPut = new HttpPut("http://127.0.0.1:5001/restapi/compute/dc1/" + name);
+        HttpPut httpPut = new HttpPut("http://127.0.0.1:5001/restapi/compute/dc1/" + vimVduId);
         httpPut.addHeader("Content-Type", "application/json");
         try {
             httpPut.setEntity(new StringEntity(putParameters));
@@ -199,7 +201,7 @@ public class VIMEmuComputeWrapper extends ComputeWrapper {
         for (int i = 0; i < status.length(); i++) {
             JSONObject obj = status.getJSONObject(i);
             ConnectionPointRecord cp = new ConnectionPointRecord();
-            cp.setId(obj.getString("intf_name"));
+            cp.setId(Common.mapVimVduNetworkInterfaceToConnectionPoint(vimVduId, connectionPoints, obj.getString("intf_name")));
             cp.setType(ConnectionPointType.INT);
             InterfaceRecord interfaceRecord = new InterfaceRecord();
             interfaceRecord.setHardwareAddress(obj.getString("mac"));
@@ -210,6 +212,7 @@ public class VIMEmuComputeWrapper extends ComputeWrapper {
         }
         VnfcInstance vnfcInstance = new VnfcInstance();
         vnfcInstance.setConnectionPoints(connectionPointRecords);
+        vnfcInstance.setVimId(this.getConfig().getUuid());
         ArrayList<VnfcInstance> vnfcInstances = new ArrayList<>();
         vnfcInstances.add(vnfcInstance);
         VduRecord vduRecord = new VduRecord();
@@ -220,21 +223,23 @@ public class VIMEmuComputeWrapper extends ComputeWrapper {
         vduRecord.setId("vdu01");
 //        vduRecord.setId(answer.getString("id"));
         vduRecord.setNumberOfInstances(1);
-        vduRecord.setVduReference(name + ":" + vduRecord.getId()); // As mentioned in SONATA/D3.1, 2016-07-07
+        vduRecord.setVduReference(vimVduId + ":" + vduRecord.getId()); // As mentioned in SONATA/D3.1, 2016-07-07
         vduRecord.setVmImage(answer.getString("image"));
         //vduRecord.setResourceRequirements(); // setted one level above
         System.out.println("Checkpoint");
         return vduRecord;
     }
 
-
-    private String createNetworkParameters(String name, List<String> networks) {
+    /**
+     *
+     */
+    private String createNetworkParameters(String VimVduId, List<String> connectionPoints) {
         StringBuilder parameterBuilder = new StringBuilder();
-        for (String networkID : networks) {
-            int hashID = (name + networkID).hashCode();
+        for (String connectionPoint : connectionPoints) {
             parameterBuilder.append(
-                    String.format("(id=%d)", hashID) + ","
-            );
+                    String.format("(id=%s)",
+                            Common.translateToVimVduNetworkInterface(VimVduId, connectionPoint))
+                            + ",");
         }
         parameterBuilder.deleteCharAt(parameterBuilder.length() - 1); // delete last comma
         return parameterBuilder.toString();
