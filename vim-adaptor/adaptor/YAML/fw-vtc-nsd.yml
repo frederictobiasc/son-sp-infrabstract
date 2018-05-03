@@ -25,7 +25,7 @@ network_functions:
 ##
 ## The NS connection points to the 
 ## outside world.
-##
+## VimEmuIntegrationTest: Will be ignored
 connection_points:
   - id: "mgmt"
     interface: "ipv4"

@@ -145,7 +145,7 @@ public class ConfigureNetworkCallProcessor extends AbstractCallProcessor {
                                 this.sendToMux(new ServicePlatformMessage(responseJson, "application/json",
                                         message.getReplyTo(), message.getSid(), null));
                                 return false;
-                            }
+                            }//6e75617f-98a5-48f5-9715-0ca3989a1376
                             String netVimUuid = WrapperBay.getInstance()
                                     .getNetworkVimFromComputeVimUuid(computeVimUuid).getConfig().getUuid();
                             if (netVim2SubGraphMap.containsKey(netVimUuid)) {
@@ -171,6 +171,7 @@ public class ConfigureNetworkCallProcessor extends AbstractCallProcessor {
                         partialNsd.setConnectionPoints(nsd.getConnectionPoints());
                         partialNsd.setNetworkFunctions(nsd.getNetworkFunctions());
                         partialNsd.setInstanceUuid(serviceInstaceId);
+                        partialNsd.setVirtualLinks(nsd.getVirtualLinks());
                         ForwardingGraph partialGraph = new ForwardingGraph();
                         NetworkForwardingPath partialPath = new NetworkForwardingPath();
                         ArrayList<ConnectionPointReference> connectionPoints =

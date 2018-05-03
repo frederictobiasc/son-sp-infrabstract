@@ -213,6 +213,8 @@ public class VIMEmuComputeWrapper extends ComputeWrapper {
         VnfcInstance vnfcInstance = new VnfcInstance();
         vnfcInstance.setConnectionPoints(connectionPointRecords);
         vnfcInstance.setVimId(this.getConfig().getUuid());
+        vnfcInstance.setVcId(answer.getString("id"));
+        vnfcInstance.setId(answer.getString("hostname"));
         ArrayList<VnfcInstance> vnfcInstances = new ArrayList<>();
         vnfcInstances.add(vnfcInstance);
         VduRecord vduRecord = new VduRecord();

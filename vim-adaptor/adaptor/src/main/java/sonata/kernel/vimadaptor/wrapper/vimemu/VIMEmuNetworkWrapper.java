@@ -30,25 +30,21 @@ package sonata.kernel.vimadaptor.wrapper.vimemu;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.LoggerFactory;
 import sonata.kernel.vimadaptor.commons.*;
-import sonata.kernel.vimadaptor.commons.nsd.ConnectionPointRecord;
-import sonata.kernel.vimadaptor.commons.nsd.NetworkFunctionHelper;
+import sonata.kernel.vimadaptor.commons.nsd.NetworkFunction;
+import sonata.kernel.vimadaptor.commons.nsd.ServiceDescriptor;
+import sonata.kernel.vimadaptor.commons.nsd.VirtualLink;
 import sonata.kernel.vimadaptor.commons.vnfd.ConnectionPointReference;
 import sonata.kernel.vimadaptor.commons.vnfd.VnfDescriptor;
 import sonata.kernel.vimadaptor.commons.vnfd.VnfVirtualLink;
 import sonata.kernel.vimadaptor.wrapper.NetworkWrapper;
 import sonata.kernel.vimadaptor.wrapper.WrapperConfiguration;
-import sonata.kernel.vimadaptor.wrapper.ovsWrapper.OrderedMacAddress;
 
-import java.io.File;
-import java.io.FileReader;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Properties;
+import java.lang.invoke.MethodHandles;
+import java.util.*;
 
 public class VIMEmuNetworkWrapper extends NetworkWrapper {
     private static final String logName = "[VIMEmuNetworkWrapper] ";
-    private static final org.slf4j.Logger Logger = LoggerFactory.getLogger(VIMEmuNetworkWrapper.class);
-    private static final String ADAPTOR_SEGMENTS_CONF = "/adaptor/segments.conf";
+    private static final org.slf4j.Logger Logger = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
     public VIMEmuNetworkWrapper(WrapperConfiguration config) {
         super(config);
@@ -62,16 +58,22 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
     @Override
     public void configureNetworking(NetworkConfigurePayload data) throws Exception {
         Logger.info(logName + "configureNetworking called");
-        if (data.getNsd().getForwardingGraphs().size() <= 0) {
-            throw new Exception("No Forwarding Graph specified in the descriptor");
+        if (data.getNsd().getVirtualLinks().isEmpty()) {
+            throw new IllegalArgumentException("NSD contains no virtual links for deployment");
         }
+        List<VIMEmuNetworkPayload> payload = translateToVimVduInterfaces(translateVnfIdToVnfName(extractContainerInterfaces(data.getNsd().getVirtualLinks()), data.getNsd()), data);
+
+
+
+
+
+        /*
 
         ArrayList<ConnectionPointReference> connectionPoints = data.getNsd().getForwardingGraphs().get(0).getNetworkForwardingPaths().get(0).getConnectionPoints();
         Collections.sort(connectionPoints);
         int portIndex = 0;
 
-        ArrayList<OrderedMacAddress> odlList = new ArrayList<>();
-        // Pre-populate structures for efficent search.
+        ArrayList<OrderedMacAddress> macAddresses = new ArrayList<>();
 
 
         for (ConnectionPointReference connectionPointReference : connectionPoints) {
@@ -122,14 +124,14 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
                 throw new Exception(
                         "Illegal Format: cannot find the VNFR.VDU.VNFC.CPR matching: " + vnfConnectionPointReference);
             } else {
-                // Eureka!
+                // Eureka! What?
                 OrderedMacAddress mac = new OrderedMacAddress();
                 mac.setMac(matchingConnectionPointRecord.getInterface().getHardwareAddress());
                 mac.setPosition(portIndex);
                 mac.setVcId(vcId);
                 mac.setReferenceCp(qualifiedName);
                 portIndex++;
-                odlList.add(mac);
+                macAddresses.add(mac);
             }
 
         }
@@ -143,6 +145,7 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
         if (nullNapCondition) {
             Logger.warn("NAP not specified, using default ones from default config file");
             Properties segments = new Properties();
+
             segments.load(new FileReader(new File(ADAPTOR_SEGMENTS_CONF)));
             NetworkAttachmentPoints nap = new NetworkAttachmentPoints();
             ArrayList<NapObject> ingresses = new ArrayList<NapObject>();
@@ -153,7 +156,136 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
             nap.setIngresses(ingresses);
             data.setNap(nap);
         }
+
+
+        Collections.sort(macAddresses);
+        int ruleNumber = 0;
+        for (NapObject inNap : data.getNap().getIngresses()) {
+            for (NapObject outNap : data.getNap().getEgresses()) {
+                OvsPayload odlPayload = new OvsPayload("add", data.getServiceInstanceId() + "." + ruleNumber,
+                        inNap.getNap(), outNap.getNap(), macAddresses);
+                ObjectMapper mapper = new ObjectMapper(new JsonFactory());
+                mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+                // Logger.info(compositionString);
+                String payload = mapper.writeValueAsString(odlPayload);
+                Logger.debug(this.getConfig().getUuid() + " - " + this.getConfig().getVimEndpoint());
+                Logger.debug(payload);
+                /*{"action":"add","in_segment":"10.100.32.40/32","instance_id":"123.0","port_list":[
+                {"port":"4e:41:8f:35:58:4a","order":0,
+                "vc_id":"2661000e221aa15d8b19669c5031d4f3f91399a53ddb8f170940b974fd96b0a4"}
+                ,{"port":"a6:00:87:3f:10:25","order":1,
+                "vc_id":"2661000e221aa15d8b19669c5031d4f3f91399a53ddb8f170940b974fd96b0a4"}],
+                "out_segment":"10.100.0.40/32"}
+
+                InetAddress IPAddress = InetAddress.getByName(this.getConfig().getVimEndpoint());
+
+                int sfcAgentPort = 55555;
+                Socket clientSocket;// = new Socket(IPAddress, sfcAgentPort);
+                clientSocket.setSoTimeout(10000);
+                byte[] sendData = new byte[1024];
+                sendData = payload.getBytes(Charset.forName("UTF-8"));
+                PrintStream out = new PrintStream(clientSocket.getOutputStream());
+                BufferedReader in =
+                        new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+
+                out.write(sendData);
+                out.flush();
+                9
+                String response;
+                try {
+                    response = in.readLine();
+                } catch (SocketTimeoutException e) {
+                    clientSocket.close();
+                    Logger.error("Timeout exception from the OVS SFC agent");
+                    throw new Exception("Request to OVS VIM agent timed out.");
+                }
+                if (response == null) {
+                    in.close();
+                    out.close();
+                    clientSocket.close();
+                    throw new Exception("null response received from OVS VIM ");
+                }
+                in.close();
+                out.close();
+                clientSocket.close();
+
+                Logger.info("SFC Agent response:\n" + response);
+                if (!response.equals("SUCCESS")) {
+                    Logger.error("Unexpected response.");
+                    Logger.error("received string length: " + response.length());
+                    Logger.error("received string: " + response);
+                    throw new Exception(
+                            "Unexpected response from OVS SFC agent while trying to add a configuration.");
+                }
+                ruleNumber++;
+            }
+        }
+
+        Logger.info("[OvsWrapper]networkConfigure-time: ");
+
+
         return;
+        */
+    }
+
+    private Map<String, String> translateVnfIdToVnfName(Map<String, String> vnfNameRawInterfacesMap, ServiceDescriptor nsd) {
+        Map<String, String> vnfNameInterfacesMap = new HashMap<>();
+        for (Map.Entry<String, String> vnfNameRawInterface : vnfNameRawInterfacesMap.entrySet()) {
+            String newKey = null, newValue = null;
+            for (NetworkFunction networkFunction : nsd.getNetworkFunctions()) {
+                if (vnfNameRawInterface.getValue().equals(networkFunction.getVnfName())) {
+                    newValue = networkFunction.getVnfId();
+                }
+                if (vnfNameRawInterface.getKey().equals(networkFunction.getVnfName())) {
+                    newKey = networkFunction.getVnfId();
+                }
+            }
+            if (newKey != null && newValue != null) {
+                vnfNameInterfacesMap.put(newKey, newValue);
+            } else {
+                throw new IllegalArgumentException("Inconsistency in NSD: VnfName in Virtuallinks does not match definition in networkFunctions");
+            }
+        }
+        return vnfNameInterfacesMap;
+    }
+
+
+    /**
+     * Vnfds contain connection between virtual connectionPoints and connectionPoints of Vdus.
+     *
+     * @param stringStringMap
+     * @param data
+     * @return
+     */
+    private List<VIMEmuNetworkPayload> translateToVimVduInterfaces(Map<String, String> rawVduInterfacePairs, NetworkConfigurePayload data) {
+        //fw_vnf:fwin
+
+
+        return null;
+
+    }
+
+    private Map<String, String> extractContainerInterfaces(ArrayList<VirtualLink> virtualLinks) {
+        Map<String, String> containerInterfaces = new HashMap<>();
+
+        for (VirtualLink virtualLink : virtualLinks) {
+            if (virtualLink.getConnectivityType() == VirtualLink.ConnectivityType.E_LINE && assertOnlyContainerInterfaces(virtualLink)) {
+                containerInterfaces.put(virtualLink.getConnectionPointsReference().get(0), virtualLink.getConnectionPointsReference().get(1));
+            }
+        }
+        return containerInterfaces;
+    }
+
+    private boolean assertOnlyContainerInterfaces(VirtualLink virtualLink) {
+        if (virtualLink.getConnectionPointsReference().size() != 2) {
+            return false;
+        }
+        for (String connectionPointReference : virtualLink.getConnectionPointsReference()) {
+            if (connectionPointReference.split(":").length != 2) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @NotNull

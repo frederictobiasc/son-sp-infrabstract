@@ -186,7 +186,7 @@ public class VIMEmuIntegrationTest implements MessageReceiver {
         JSONObject jsonObject = (JSONObject) tokener.nextValue();
         String status = jsonObject.getString("request_status");
         String netWrUuid = jsonObject.getString("uuid");
-        System.out.println("OVS Wrapper added, with uuid: " + netWrUuid);
+        System.out.println("vim-emu Network Wrapper added, with uuid: " + netWrUuid);
         System.out.println("Status:\n" + status);
         return netWrUuid;
     }
