@@ -34,6 +34,7 @@ import sonata.kernel.vimadaptor.commons.nsd.NetworkFunction;
 import sonata.kernel.vimadaptor.commons.nsd.ServiceDescriptor;
 import sonata.kernel.vimadaptor.commons.nsd.VirtualLink;
 import sonata.kernel.vimadaptor.commons.vnfd.ConnectionPointReference;
+import sonata.kernel.vimadaptor.commons.vnfd.VirtualDeploymentUnit;
 import sonata.kernel.vimadaptor.commons.vnfd.VnfDescriptor;
 import sonata.kernel.vimadaptor.commons.vnfd.VnfVirtualLink;
 import sonata.kernel.vimadaptor.wrapper.NetworkWrapper;
@@ -61,8 +62,8 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
         if (data.getNsd().getVirtualLinks().isEmpty()) {
             throw new IllegalArgumentException("NSD contains no virtual links for deployment");
         }
-        List<VIMEmuNetworkPayload> payload = translateToVimVduInterfaces(translateVnfIdToVnfName(extractContainerInterfaces(data.getNsd().getVirtualLinks()), data.getNsd()), data);
-
+        List<VIMEmuNetworkPayload> payload = translateToVIMEmuNetworkPayload(translateVnfIdToVnfName(extractContainerInterfaces(data.getNsd().getVirtualLinks()), data.getNsd()), data);
+        System.out.println("ready");
 
 
 
@@ -233,11 +234,11 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
         for (Map.Entry<String, String> vnfNameRawInterface : vnfNameRawInterfacesMap.entrySet()) {
             String newKey = null, newValue = null;
             for (NetworkFunction networkFunction : nsd.getNetworkFunctions()) {
-                if (vnfNameRawInterface.getValue().equals(networkFunction.getVnfName())) {
-                    newValue = networkFunction.getVnfId();
+                if (vnfNameRawInterface.getValue().split(":")[0].equals(networkFunction.getVnfId())) {
+                    newValue = networkFunction.getVnfName() + ":" + vnfNameRawInterface.getValue().split(":")[1];
                 }
-                if (vnfNameRawInterface.getKey().equals(networkFunction.getVnfName())) {
-                    newKey = networkFunction.getVnfId();
+                if (vnfNameRawInterface.getKey().split(":")[0].equals(networkFunction.getVnfId())) {
+                    newKey = networkFunction.getVnfName() + ":" + vnfNameRawInterface.getKey().split(":")[1];
                 }
             }
             if (newKey != null && newValue != null) {
@@ -257,12 +258,57 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
      * @param data
      * @return
      */
-    private List<VIMEmuNetworkPayload> translateToVimVduInterfaces(Map<String, String> rawVduInterfacePairs, NetworkConfigurePayload data) {
-        //fw_vnf:fwin
-
+    private List<VIMEmuNetworkPayload> translateToVIMEmuNetworkPayload(Map<String, String> rawVduInterfacePairs, NetworkConfigurePayload data) {
+        ArrayList<VIMEmuNetworkPayload> vimEmuNetworkPayloads = new ArrayList<>();
+        for (Map.Entry<String, String> rawVduInterfacePair : rawVduInterfacePairs.entrySet()) {
+            VIMEmuNetworkPayload networkPayload = new VIMEmuNetworkPayload();
+            networkPayload.setSourceVnfName(rawVduInterfacePair.getKey().split(":")[0]);
+            networkPayload.setSourceVnfInterface(rawVduInterfacePair.getKey().split(":")[1]);
+            networkPayload.setDestinationVnfName(rawVduInterfacePair.getValue().split(":")[0]);
+            networkPayload.setDestinationVnfInterface(rawVduInterfacePair.getValue().split(":")[1]);
+            networkPayload.setSourceVduId(getCorrespondingVdu(networkPayload.getSourceVnfName(), data).getId());
+            networkPayload.setSourceVduInterface(getCorrespondingVduInterface(networkPayload.getSourceVnfName(),
+                    networkPayload.getSourceVnfInterface(), networkPayload.getSourceVduId(), data));
+            networkPayload.setDestinationVduId(getCorrespondingVdu(networkPayload.getDestinationVnfName(),
+                    data).getId());
+            networkPayload.setDestinationVduInterface(getCorrespondingVduInterface(
+                    networkPayload.getDestinationVnfName(), networkPayload.getDestinationVnfInterface(),
+                    networkPayload.getDestinationVduId(), data));
+            System.out.println("test");
+        }
 
         return null;
 
+    }
+
+    private String getCorrespondingVduInterface(String vnfName, String vnfInterface, String vduId, NetworkConfigurePayload data) {
+        for(VnfVirtualLink virtualLink : getCorrespondingVnfd(vnfName, data).getVirtualLinks()){
+            if(virtualLink.getConnectivityType() == VirtualLink.ConnectivityType.E_LINE){
+                if(virtualLink.getConnectionPointsReference().contains(vnfInterface)){
+                    if(virtualLink.getConnectionPointsReference().get(0).equals(vnfInterface)){
+                        return virtualLink.getConnectionPointsReference().get(1);
+                    }
+                    if(virtualLink.getConnectionPointsReference().get(1).equals(vnfInterface)){
+                        return virtualLink.getConnectionPointsReference().get(0);
+                    }
+                }
+            }
+        }
+
+        throw new IllegalArgumentException("Could not find corresponding vduInterface for \"" + vnfName+ ":"+vnfInterface+"\"");
+    }
+
+    private VirtualDeploymentUnit getCorrespondingVdu(String sourceVnfName, NetworkConfigurePayload data) {
+        return getCorrespondingVnfd(sourceVnfName, data).getVirtualDeploymentUnits().get(0);
+    }
+
+    private VnfDescriptor getCorrespondingVnfd(String sourceVnfName, NetworkConfigurePayload data) {
+        for (VnfDescriptor vnfd : data.getVnfds()) {
+            if (vnfd.getName().equals(sourceVnfName)) {
+                return vnfd;
+            }
+        }
+        throw new IllegalArgumentException("Could not find VNF for given argument\"" + sourceVnfName + "\"");
     }
 
     private Map<String, String> extractContainerInterfaces(ArrayList<VirtualLink> virtualLinks) {

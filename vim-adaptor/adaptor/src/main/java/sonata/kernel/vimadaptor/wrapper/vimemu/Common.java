@@ -6,8 +6,8 @@ public class Common {
     static String translateToVimVduId(String vnfName, String vduId){
         return vnfName +"_"+ vduId;
     }
-    static String translateToVimVduNetworkInterface(String vimVduId, String connectionPoint){
-        int i = (vimVduId + connectionPoint).hashCode();
+    static String translateToVimVduNetworkInterface(String vimVduId, String vduInterface){
+        int i = (vimVduId + vduInterface).hashCode();
 
         return Long.toString(i);
     }
