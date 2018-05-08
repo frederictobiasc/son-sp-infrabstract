@@ -27,6 +27,7 @@
 
 package sonata.kernel.vimadaptor.wrapper.vimemu;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.LoggerFactory;
 import sonata.kernel.vimadaptor.commons.*;
@@ -46,10 +47,12 @@ import java.util.*;
 public class VIMEmuNetworkWrapper extends NetworkWrapper {
     private static final String logName = "[VIMEmuNetworkWrapper] ";
     private static final org.slf4j.Logger Logger = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
+    private ObjectMapper mapper;
 
     public VIMEmuNetworkWrapper(WrapperConfiguration config) {
         super(config);
         System.out.println(logName + "configureNetworking called");
+        mapper = new ObjectMapper();
     }
 
 
@@ -63,7 +66,11 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
             throw new IllegalArgumentException("NSD contains no virtual links for deployment");
         }
         List<VIMEmuNetworkPayload> payload = translateToVIMEmuNetworkPayload(translateVnfIdToVnfName(extractContainerInterfaces(data.getNsd().getVirtualLinks()), data.getNsd()), data);
+
+        System.out.println(mapper.writeValueAsString(payload.get(0)));
         System.out.println("ready");
+
+
 
 
 
@@ -274,10 +281,10 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
             networkPayload.setDestinationVduInterface(getCorrespondingVduInterface(
                     networkPayload.getDestinationVnfName(), networkPayload.getDestinationVnfInterface(),
                     networkPayload.getDestinationVduId(), data));
-            System.out.println("test");
+            vimEmuNetworkPayloads.add(networkPayload);
         }
 
-        return null;
+        return vimEmuNetworkPayloads;
 
     }
 
