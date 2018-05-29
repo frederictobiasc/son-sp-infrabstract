@@ -1,15 +1,23 @@
 package sonata.kernel.vimadaptor.wrapper.vimemu;
 
 import java.util.List;
+import java.util.zip.CRC32;
 
 public class Common {
     static String translateToVimVduId(String vnfName, String vduId){
         return vnfName +"_"+ vduId;
     }
-    static String translateToVimVduNetworkInterface(String vimVduId, String vduInterface){
-        int i = (vimVduId + vduInterface).hashCode();
 
-        return Long.toString(i);
+    /**
+     * Caution: generated identifiers are not necessarily unique.
+     * @param vimVduId
+     * @param vduInterface
+     * @return identifier for the virtual network adapter
+     */
+    static String translateToVimVduNetworkInterface(String vimVduId, String vduInterface){
+        CRC32 crc = new CRC32();
+        crc.update((vimVduId+vduInterface).getBytes());
+        return Long.toHexString(crc.getValue());
     }
 
     /**

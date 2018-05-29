@@ -34,15 +34,11 @@ import org.apache.http.client.methods.HttpPut;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
-import org.jetbrains.annotations.NotNull;
-import org.json.JSONObject;
-import org.json.JSONTokener;
 import org.slf4j.LoggerFactory;
-import sonata.kernel.vimadaptor.commons.*;
+import sonata.kernel.vimadaptor.commons.NetworkConfigurePayload;
 import sonata.kernel.vimadaptor.commons.nsd.NetworkFunction;
 import sonata.kernel.vimadaptor.commons.nsd.ServiceDescriptor;
 import sonata.kernel.vimadaptor.commons.nsd.VirtualLink;
-import sonata.kernel.vimadaptor.commons.vnfd.ConnectionPointReference;
 import sonata.kernel.vimadaptor.commons.vnfd.VirtualDeploymentUnit;
 import sonata.kernel.vimadaptor.commons.vnfd.VnfDescriptor;
 import sonata.kernel.vimadaptor.commons.vnfd.VnfVirtualLink;
@@ -52,7 +48,10 @@ import sonata.kernel.vimadaptor.wrapper.WrapperConfiguration;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.lang.invoke.MethodHandles;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class VIMEmuNetworkWrapper extends NetworkWrapper {
     private static final String logName = "[VIMEmuNetworkWrapper] ";
@@ -67,6 +66,13 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
 
 
     /**
+     * Relies on assumptions:
+     * - Every VNF contains one VDU
+     * - Forwarding path is equal to ConnectionPoints in NSD (forwarding path is not considered at all)
+     * - Format of VDU ConnectionPoints (vdu:interface)
+     * This functionality is developed around https://github.com/sonata-nfv/son-examples/tree/
+     * 5338554f36d014ee5f339261b05c54f94249180e/service-projects/sonata-fw-vtc-service-emu
+     *
      * @see sonata.kernel.vimadaptor.wrapper.NetworkWrapper#configureNetworking(NetworkConfigurePayload)
      */
     @Override
@@ -80,171 +86,6 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
         for (VIMEmuNetworkPayload chainPayload : networkPayloads) {
             deploySFCOnVIM(mapper.writeValueAsString(chainPayload));
         }
-
-
-
-
-
-
-        /*
-
-        ArrayList<ConnectionPointReference> connectionPoints = data.getNsd().getForwardingGraphs().get(0).getNetworkForwardingPaths().get(0).getConnectionPoints();
-        Collections.sort(connectionPoints);
-        int portIndex = 0;
-
-        ArrayList<OrderedMacAddress> macAddresses = new ArrayList<>();
-
-
-        for (ConnectionPointReference connectionPointReference : connectionPoints) {
-            ConnectionPointRecord matchingConnectionPointRecord = null;
-            VnfDescriptor vnfd = NetworkFunctionHelper.getVnfdByName(data.getVnfds(),
-                    NetworkFunctionHelper.getVnfNameById(data.getNsd().getNetworkFunctions(),
-                            connectionPointReference.getVnfId()));
-            VnfRecord vnfr = NetworkFunctionHelper.getVnfrByVnfdReference(data.getVnfrs(), vnfd.getUuid());
-            VnfVirtualLink inputLink = getInputLink(connectionPointReference, vnfd);
-            String vnfConnectionPointReference = getVnfConnectionPointReference(connectionPointReference, inputLink);
-
-            Logger.debug("Searching for CpRecord of Cp: " + vnfConnectionPointReference);
-
-            String vcId = null;
-            String[] split = vnfConnectionPointReference.split(":");
-            String vduId = split[0];
-            String vnfConnectionConnectionPointName = split[1];
-            if (split.length != 2) {
-                throw new Exception(
-                        "Illegal Format: A connection point reference should be in the format vdu_id:cp_name. Found: "
-                                + vnfConnectionPointReference);
-            }
-
-            for (VduRecord vdu : vnfr.getVirtualDeploymentUnits()) {
-                if (vdu.getId().equals(vduId)) {
-                    for (VnfcInstance vnfc : vdu.getVnfcInstance()) {
-                        for (ConnectionPointRecord cpRec : vnfc.getConnectionPoints()) {
-                            Logger.debug("Checking " + cpRec.getId());
-                            if (vnfConnectionConnectionPointName.equals(cpRec.getId())) {
-                                matchingConnectionPointRecord = cpRec;
-                                vcId = vnfc.getVcId();
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            String qualifiedName = NetworkFunctionHelper.getVnfNameById(data.getNsd().getNetworkFunctions(), connectionPointReference.getVnfId()) + "." + vnfConnectionPointReference + "." + data.getNsd().getInstanceUuid();
-            // HeatPort connectedPort = null;
-            // for (HeatPort port : composition.getPorts()) {
-            // if (port.getPortName().equals(qualifiedName)) {
-            // connectedPort = port;
-            // break;
-            // }
-            // }
-            if (matchingConnectionPointRecord == null) {
-                throw new Exception(
-                        "Illegal Format: cannot find the VNFR.VDU.VNFC.CPR matching: " + vnfConnectionPointReference);
-            } else {
-                // Eureka! What?
-                OrderedMacAddress mac = new OrderedMacAddress();
-                mac.setMac(matchingConnectionPointRecord.getInterface().getHardwareAddress());
-                mac.setPosition(portIndex);
-                mac.setVcId(vcId);
-                mac.setReferenceCp(qualifiedName);
-                portIndex++;
-                macAddresses.add(mac);
-            }
-
-        }
-
-        boolean nullNapCondition = data.getNap() == null
-                || (data.getNap() != null
-                && (data.getNap().getEgresses() == null || data.getNap().getIngresses() == null))
-                || (data.getNap() != null && data.getNap().getEgresses() != null
-                && data.getNap().getIngresses() != null && (data.getNap().getIngresses().size() == 0
-                || data.getNap().getEgresses().size() == 0));
-        if (nullNapCondition) {
-            Logger.warn("NAP not specified, using default ones from default config file");
-            Properties segments = new Properties();
-
-            segments.load(new FileReader(new File(ADAPTOR_SEGMENTS_CONF)));
-            NetworkAttachmentPoints nap = new NetworkAttachmentPoints();
-            ArrayList<NapObject> ingresses = new ArrayList<NapObject>();
-            ArrayList<NapObject> egresses = new ArrayList<NapObject>();
-            ingresses.add(new NapObject("Athens", segments.getProperty("in")));
-            egresses.add(new NapObject("Athens", segments.getProperty("out")));
-            nap.setEgresses(egresses);
-            nap.setIngresses(ingresses);
-            data.setNap(nap);
-        }
-
-
-        Collections.sort(macAddresses);
-        int ruleNumber = 0;
-        for (NapObject inNap : data.getNap().getIngresses()) {
-            for (NapObject outNap : data.getNap().getEgresses()) {
-                OvsPayload odlPayload = new OvsPayload("add", data.getServiceInstanceId() + "." + ruleNumber,
-                        inNap.getNap(), outNap.getNap(), macAddresses);
-                ObjectMapper mapper = new ObjectMapper(new JsonFactory());
-                mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
-                // Logger.info(compositionString);
-                String payload = mapper.writeValueAsString(odlPayload);
-                Logger.debug(this.getConfig().getUuid() + " - " + this.getConfig().getVimEndpoint());
-                Logger.debug(payload);
-                /*{"action":"add","in_segment":"10.100.32.40/32","instance_id":"123.0","port_list":[
-                {"port":"4e:41:8f:35:58:4a","order":0,
-                "vc_id":"2661000e221aa15d8b19669c5031d4f3f91399a53ddb8f170940b974fd96b0a4"}
-                ,{"port":"a6:00:87:3f:10:25","order":1,
-                "vc_id":"2661000e221aa15d8b19669c5031d4f3f91399a53ddb8f170940b974fd96b0a4"}],
-                "out_segment":"10.100.0.40/32"}
-
-                InetAddress IPAddress = InetAddress.getByName(this.getConfig().getVimEndpoint());
-
-                int sfcAgentPort = 55555;
-                Socket clientSocket;// = new Socket(IPAddress, sfcAgentPort);
-                clientSocket.setSoTimeout(10000);
-                byte[] sendData = new byte[1024];
-                sendData = payload.getBytes(Charset.forName("UTF-8"));
-                PrintStream out = new PrintStream(clientSocket.getOutputStream());
-                BufferedReader in =
-                        new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-
-                out.write(sendData);
-                out.flush();
-                9
-                String response;
-                try {
-                    response = in.readLine();
-                } catch (SocketTimeoutException e) {
-                    clientSocket.close();
-                    Logger.error("Timeout exception from the OVS SFC agent");
-                    throw new Exception("Request to OVS VIM agent timed out.");
-                }
-                if (response == null) {
-                    in.close();
-                    out.close();
-                    clientSocket.close();
-                    throw new Exception("null response received from OVS VIM ");
-                }
-                in.close();
-                out.close();
-                clientSocket.close();
-
-                Logger.info("SFC Agent response:\n" + response);
-                if (!response.equals("SUCCESS")) {
-                    Logger.error("Unexpected response.");
-                    Logger.error("received string length: " + response.length());
-                    Logger.error("received string: " + response);
-                    throw new Exception(
-                            "Unexpected response from OVS SFC agent while trying to add a configuration.");
-                }
-                ruleNumber++;
-            }
-        }
-
-        Logger.info("[OvsWrapper]networkConfigure-time: ");
-
-
-        return;
-        */
     }
 
     private void deploySFCOnVIM(String chainDeployJSON) {
@@ -312,7 +153,8 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
                     Common.translateToVimVduId(
                             networkPayload.getSourceVnfName(),
                             getCorrespondingVdu(
-                                    networkPayload.getSourceVnfName(), data).getId()
+                                    networkPayload.getSourceVnfName(), data
+                            ).getId()
                     )
             );
             networkPayload.setSourceVduInterface(
@@ -403,48 +245,10 @@ public class VIMEmuNetworkWrapper extends NetworkWrapper {
         return true;
     }
 
-    @NotNull
-    private String getVnfConnectionPointReference(ConnectionPointReference connectionPointReference, VnfVirtualLink inputLink) throws Exception {
-        String vnfConnectionPointReference = null;
-        for (String cp : inputLink.getConnectionPointsReference()) {
-            if (!cp.equals(connectionPointReference.getConnectionPointRef())) {
-                vnfConnectionPointReference = cp;
-                break;
-            }
-        }
-        if (vnfConnectionPointReference == null) {
-            throw new Exception(
-                    "Illegal Format: Unable to find the VNFC Cp name connected to this in/out VNF VL");
-        }
-        return vnfConnectionPointReference;
-    }
-
-    @NotNull
-    private VnfVirtualLink getInputLink(ConnectionPointReference connectionPointReference, VnfDescriptor vnfd) throws Exception {
-        VnfVirtualLink inputLink = null;
-        for (VnfVirtualLink link : vnfd.getVirtualLinks()) {
-            if (link.getConnectionPointsReference().contains(connectionPointReference.getConnectionPointReferenceName())) {
-                inputLink = link;
-            }
-        }
-        if (inputLink == null) {
-            for (VnfVirtualLink link : vnfd.getVirtualLinks()) {
-                Logger.info(link.getConnectionPointsReference().toString());
-            }
-            throw new Exception(
-                    "Illegal Format: unable to find the vnfd.VL connected to the VNFD.CP=" + connectionPointReference.getVnfId() + ":" + connectionPointReference.getConnectionPointRef());
-        }
-        if (inputLink.getConnectionPointsReference().size() != 2) {
-            throw new Exception(
-                    "Illegal Format: A vnf in/out vl should connect exactly two CPs. found: "
-                            + inputLink.getConnectionPointsReference().size());
-        }
-        return inputLink;
-    }
-
     /**
      * @see sonata.kernel.vimadaptor.wrapper.NetworkWrapper#deconfigureNetworking(java.lang.String)
      */
+
     @Override
     public void deconfigureNetworking(String instanceId) {
         System.out.println(logName + "deconfigureNetworking called");
