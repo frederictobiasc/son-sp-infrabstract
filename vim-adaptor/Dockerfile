@@ -1,4 +1,4 @@
-FROM maven:3.5.2-jdk-8
+FROM maven:3.5.3-jdk-9
 MAINTAINER D.Valocchi <d.valocchi@ucl.ac.uk>
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y \
@@ -14,7 +14,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y \
 #RUN pip install --upgrade pip; \
 #  pip install --upgrade virtualenv; \
 #  pip install python-keystoneclient; \
-#  pip install python-novaclient; \
+#  pip install python-novaclient; \ 
 #  pip install python-heatclient \
 #  && rm -rf /var/lib/apt/lists/*
 
