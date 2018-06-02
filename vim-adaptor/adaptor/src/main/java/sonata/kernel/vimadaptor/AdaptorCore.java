@@ -173,7 +173,6 @@ public class AdaptorCore {
     northProducer = new RabbitMqProducer(muxQueue);
     
     status = "RUNNING";
-
   }
 
   /**
