@@ -37,16 +37,16 @@ RUN chmod +x /etc/init.d/son-sp-infra
 
 WORKDIR /adaptor
 
-ENV broker_host broker
+ENV broker_host son-broker
 ENV broker_port 5672
 ENV broker_exchange son-kernel
-ENV broker_uri amqp://guest:guest@broker:5672/%2F
+ENV broker_uri amqp://guest:guest@son-broker:5672/%2F
 
-ENV repo_host postgres
+ENV repo_host son-postgres
 ENV repo_port 5432
 ENV repo_user sonatatest
 ENV repo_pass sonata
-ENV SONATA_SP_ADDRESS 127.0.0.1
+ENV SONATA_SP_ADDRESS 131.234.28.60
 ENV SONATA_2ND_SP_ADDRESS 127.0.0.1
 ENV MOCKED_2ND_PLATFORM true
 
